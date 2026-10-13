@@ -96,6 +96,21 @@ a swing takes effect from the next shot, exactly as the game does it. The number
 
 ## Features
 
+### Melee range: the bar stays
+
+When you are too close for Auto Shot, the bar does not disappear:
+
+![Melee swing timer and too close](docs/images/bar-melee.png)
+
+- **MELEE** (gold): while you auto-attack in melee, the bar times your main-hand swings,
+  with the countdown to the next one. Handy for Raptor Strike, which goes off with your next
+  swing. There is no stand-still window: melee does not need you to stand still.
+- **TOO CLOSE**: in combat, too close for Auto Shot and not swinging. Back off to 8 yards
+  or more, or start meleeing. Melee mode starts once you actually swing at a target in
+  melee range; switching attack on at range does not turn the bar into MELEE.
+
+Switch it off with **Melee & too close** in the settings; the melee colour is under Colors.
+
 ### Range check and distance
 
 A coloured dot and text under the bar: **In range**, **Too close** or **Out of range**, for a
@@ -160,8 +175,8 @@ anywhere on screen; closing the window locks it again. You can also open it from
 | **Timing** | Add your ping to the stand-still window (on by default) |
 | **Ammo vendors on the map** | World map, minimap, continent maps, neutral vendors, other faction, which vendors (match my weapon / arrows and bullets / arrows only / bullets only) |
 | **Text** | 16 fonts (2002 Bold by default), shadow or outline, font size, small font size |
-| **Colors** | Move, stand still, window, background, countdown |
-| **Show** | Status text, countdown, weapon speed, shots to kill, spark, flash, border, gradient fill, ammo left (off / percent / count) |
+| **Colors** | Move, stand still, window, background, countdown, melee |
+| **Show** | Status text, countdown, weapon speed, shots to kill, spark, flash, border, gradient fill, melee & too close, ammo left (off / percent / count) |
 | **Range check** | On/off, text, only in combat, also when not shooting, position, distance format |
 
 **Reset position** puts the bar back in its default place, just below the middle of the screen; **Reset all settings**

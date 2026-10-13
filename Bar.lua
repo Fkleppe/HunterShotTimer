@@ -101,7 +101,7 @@ local dot = range:CreateTexture(nil, "OVERLAY")
 dot:SetTexture(WHITE)
 
 -- For tests and /hst debugging.
-ns.ui = { status = status, countdown = countdown, info = info, ammoText = ammoText, ammoIcon = ammoIcon, rangeText = rangeText, dot = dot }
+ns.ui = { status = status, countdown = countdown, info = info, ammoText = ammoText, ammoIcon = ammoIcon, rangeText = rangeText, dot = dot, zone = zone }
 
 local function setFont(fs, size)
   local db = ns.db
@@ -299,23 +299,26 @@ local function fitInfo(rangeVisible)
   info:SetAlpha(fits and 1 or 0)
 end
 
-local function setSpeed(speed)
-  local window = ns.Window()
+-- The stand-still window at the end of the bar; `window` 0 hides it (melee has none).
+local function setSpeed(speed, window)
+  window = window or ns.Window()
   if speed == shownSpeed and window == shownWindow then return end
   shownSpeed, shownWindow = speed, window
   local size = barLength * math.min(window, speed) / speed
-  if vertical then zone:SetHeight(size) else zone:SetWidth(size) end
+  if vertical then zone:SetHeight(math.max(1, size)) else zone:SetWidth(math.max(1, size)) end
+  zone:SetShown(size > 0)
+  divider:SetShown(size > 0)
 end
 
 -- "2.80s   ~4 shots", each part only when it is switched on and known. Rebuilt only when
 -- the speed or the shot count changes, not every frame.
-local function setInfo(speed, shots)
+local function setInfo(speed, shots, melee)
   local db = ns.db
   speed = db.showSpeed and speed or nil
   shots = db.showShots and shots or nil
-  if speed == shown.infoSpeed and shots == shown.infoShots and shownInfo then return end
-  shown.infoSpeed, shown.infoShots = speed, shots
-  local s = speed and string.format("%.2fs", speed) or ""
+  if speed == shown.infoSpeed and shots == shown.infoShots and melee == shown.infoMelee and shownInfo then return end
+  shown.infoSpeed, shown.infoShots, shown.infoMelee = speed, shots, melee
+  local s = speed and string.format(melee and "%.2fs melee" or "%.2fs", speed) or ""
   if shots then
     s = s .. (speed and "   " or "") .. string.format("~%d shot%s", shots, shots == 1 and "" or "s")
   end
@@ -356,19 +359,17 @@ end
 
 local rangeState, rangeWait, shots, ammo = nil, 0, nil, nil
 
-local function render(now, lastShot, speed)
-  setSpeed(speed)
-  local phase, value, left = ns.Phase(now, lastShot, speed)
+-- Draw one state of the bar: fill, spark, status text and colour, countdown (nil = none).
+-- `key` tells states with the same text apart (a late "TOO CLOSE" shot vs. melee range).
+local function paint(now, value, left, label, colour, key, pulse)
   bar:SetValue(value)
   if vertical then
     spark:SetPoint("CENTER", bar, "BOTTOM", 0, barLength * value)
   else
     spark:SetPoint("CENTER", bar, "LEFT", barLength * value, 0)
   end
-  local label = phase == "move" and "MOVE" or (phase == "late" and LATE_RANGE[rangeState]) or "STAND STILL"
-  if label ~= lastLabel then
-    lastLabel = label
-    local colour = phase == "move" and ns.db.colors.move or ns.db.colors.stand
+  if key ~= lastLabel then
+    lastLabel = key
     fill(colour)
     status:SetText(label)
     status:SetTextColor(colour[1], colour[2], colour[3])
@@ -378,7 +379,7 @@ local function render(now, lastShot, speed)
     shown.spark = ns.db.showSpark
     spark:SetShown(shown.spark)
   end
-  if phase == "late" then
+  if pulse then
     spark:SetAlpha(0.45 + 0.45 * math.sin(now * 9))
     shown.sparkPulse = true
   elseif shown.sparkPulse ~= false then
@@ -386,12 +387,36 @@ local function render(now, lastShot, speed)
     spark:SetAlpha(0.9)
   end
   -- The countdown shows tenths: new text ten times a second, not every frame.
-  local tenths = phase == "late" and -1 or math.floor(left * 10 + 0.5)
+  local tenths = left and math.floor(left * 10 + 0.5) or -1
   if tenths ~= shown.tenths then
     shown.tenths = tenths
     countdown:SetText(tenths < 0 and "" or string.format("%.1f", tenths / 10))
   end
+end
+
+-- Auto Shot: move, stand still, or late (held up by moving, casting or range).
+local function render(now, lastShot, speed)
+  setSpeed(speed)
+  local phase, value, left = ns.Phase(now, lastShot, speed)
+  local late = phase == "late"
+  local label = phase == "move" and "MOVE" or (late and LATE_RANGE[rangeState]) or "STAND STILL"
+  local colour = phase == "move" and ns.db.colors.move or ns.db.colors.stand
+  paint(now, value, not late and left or nil, label, colour, label, late)
   return phase
+end
+
+-- Melee: time to your next main-hand swing (Raptor Strike goes off with it).
+local function renderMelee(now)
+  local m = ns.melee
+  setSpeed(m.speed or 1, 0)
+  local value, left = ns.MeleePhase(now)
+  paint(now, value, left, "MELEE", ns.db.colors.melee, "melee", false)
+end
+
+-- In melee range without swinging: Auto Shot cannot fire, so say so and keep the bar up.
+local function renderClose(now)
+  setSpeed(ns.state.speed or 1)
+  paint(now, 0, nil, "TOO CLOSE", ns.db.colors.stand, "close", false)
 end
 
 local function showRange(state, distance)
@@ -470,10 +495,20 @@ frame:SetScript("OnUpdate", function(_, dt)
 
   local s = ns.state
   local active = false
-  if s.lastShot then
-    local phase = render(now, s.lastShot, s.speed)
-    -- Keep the bar while Auto Shot is on; once it is off, let the current swing finish.
-    active = s.shooting or phase ~= "late"
+  local melee = ns.isHunter and db.showMelee
+  local infoSpeed, meleeOn = s.speed, melee and ns.MeleeActive(now, rangeState)
+  if meleeOn then
+    -- Swinging in melee: the bar times your melee swings instead of fading away.
+    renderMelee(now)
+    active, infoSpeed = true, ns.melee.speed
+  elseif melee and rangeState == "close" and inCombat() and not s.shooting then
+    -- Too close to shoot and not swinging: say so instead of fading away.
+    renderClose(now)
+    active = true
+  elseif s.lastShot then
+    -- Keep the bar while Auto Shot is on; once it is off, let the current swing finish
+    -- (and keep drawing it while it fades).
+    active = render(now, s.lastShot, s.speed) ~= "late" or s.shooting
   end
   fade(timer, active, dt)
 
@@ -502,7 +537,8 @@ frame:SetScript("OnUpdate", function(_, dt)
     setAmmo(ammo, ns.ammo.icon)
     fitInfo(rangeState ~= nil)
   end
-  setInfo(s.speed, shots)
+  -- Shots to kill counts Auto Shots, so it is left out while you fight in melee.
+  setInfo(infoSpeed, not meleeOn and shots or nil, meleeOn)
   fade(range, rangeState ~= nil and (active or db.rangeWhenIdle), dt)
 end)
 
@@ -557,6 +593,7 @@ events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("START_AUTOREPEAT_SPELL")
 events:RegisterEvent("STOP_AUTOREPEAT_SPELL")
 pcall(events.RegisterEvent, events, "PLAYER_SWING")
+for _, e in ipairs({ "PLAYER_ENTER_COMBAT", "PLAYER_LEAVE_COMBAT", "PLAYER_REGEN_ENABLED" }) do pcall(events.RegisterEvent, events, e) end
 events:RegisterEvent("BAG_UPDATE_DELAYED")
 events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 events:SetScript("OnEvent", function(_, event, a, b)
@@ -565,7 +602,14 @@ events:SetScript("OnEvent", function(_, event, a, b)
     if ns.isHunter and not ns.issecret(b) and b == 2 then
       ns.OnShot(GetTime(), a)
       if ns.db and ns.db.showFlash then flashAlpha = 0.35 end
+    elseif ns.isHunter and not ns.issecret(b) and b == 0 then
+      ns.OnMeleeSwing(GetTime(), a)
+      if ns.db and ns.db.showFlash and ns.db.showMelee then flashAlpha = 0.25 end
     end
+  elseif event == "PLAYER_ENTER_COMBAT" then
+    ns.melee.attacking = ns.isHunter -- melee auto-attack switched on
+  elseif event == "PLAYER_LEAVE_COMBAT" or event == "PLAYER_REGEN_ENABLED" then
+    ns.melee.attacking = false
   elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_EQUIPMENT_CHANGED" then
     ns.RefreshAmmo()
     -- A new bow or gun changes which vendors "Match my weapon" shows.
@@ -578,6 +622,7 @@ events:SetScript("OnEvent", function(_, event, a, b)
     local _, class = UnitClass("player")
     ns.isHunter = class == "HUNTER"
     ns.state.lastShot, ns.state.shooting = nil, false
+    ns.melee.lastSwing, ns.melee.speed, ns.melee.attacking = nil, nil, false
     ns.UpdateShotDamage()
     ns.RefreshAmmo()
     if ns.AttachVendorMap then ns.AttachVendorMap() end

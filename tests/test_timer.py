@@ -266,12 +266,18 @@ end
 def main():
     lua = lupa.LuaRuntime()
     lua.execute(MOCK)
+    lua.execute("before = {} for k in pairs(_G) do before[k] = true end")
     ns = lua.eval("{}")
     for name in FILES:
         chunk = lua.eval("function(src, name) return assert(loadstring(src, name)) end")(
             (ROOT / name).read_text(encoding="utf-8"), name)
         chunk("HunterShotTimer", ns)
     g = lua.globals()
+    # Only these may be global; anything else is a leak that could clash with other addons.
+    allowed = {"HunterShotTimerFrame", "HunterShotTimerVendorPinMixin", "SLASH_HUNTERSHOTTIMER1"}
+    leaked = {k for k in lua.eval("function() local t = {} for k in pairs(_G) do if not before[k] then t[#t + 1] = k end end return t end")().values()}
+    if leaked - allowed:
+        print("FAIL globals leaked:", sorted(leaked - allowed)); sys.exit(1)
     g.fillItems(ns)
     frame, timer, rng, target, bar = g.HunterShotTimerFrame, ns.timer, ns.range, g.target, ns.bar
     checks = []
@@ -415,7 +421,9 @@ def main():
     g.tick(14.1)
     check("late label back to stand still", "STAND STILL" in g.shownText())
     g.fire("PLAYER_SWING", 3.6, 0)
-    check("melee swing ignored", ns.state.speed == 2.8 and ns.state.lastShot == 10)
+    check("melee swing leaves Auto Shot alone", ns.state.speed == 2.8 and ns.state.lastShot == 10
+          and ns.melee.speed == 3.6)
+    ns.melee.lastSwing = None  # melee mode has its own tests below
     g.tick(14.2)
     g.fire("PLAYER_SWING", 2.0, 2)
     g.fire("PLAYER_SWING", 9.9, "SECRET")
@@ -429,12 +437,92 @@ def main():
     g.tick(17.0)
     check("hidden after stop", not timer.shown)
 
+    # --- Melee range: the bar stays and shows something useful -----------------------
+    target.exists, target.autoShot, target.close = True, False, True
+    g.fire("PLAYER_ENTER_COMBAT")
+    g.tick(17.5)
+    check("melee: bar up as soon as you attack a target in melee range", timer.shown and "MELEE" in g.shownText())
+    g.fire("PLAYER_SWING", 1.8, 0)
+    g.tick(18.0)
+    text = g.shownText()
+    check("melee: countdown to the next swing, melee speed", "MELEE" in text and "1.3" in text and "1.80s" in text)
+    check("melee: no Auto Shot kill count", "shot" not in text)
+    check("melee: no stand-still window", not ns.ui.zone.shown)
+    check("melee: info says melee", "1.80s melee" in text)
+    g.fire("PLAYER_LEAVE_COMBAT")
+    g.tick(19.5)
+    check("melee: the last swing finishes", "MELEE" in g.shownText())
+    g.tick(21.0)
+    check("melee: gone once you stop attacking (out of combat)", not timer.shown)
+    # In combat and too close, but not swinging: Auto Shot cannot fire, so say so.
+    g.combat = True
+    target.exists, target.autoShot, target.close = True, False, True
+    g.tick(21.6)
+    check("too close in combat: bar stays with TOO CLOSE", timer.shown and "TOO CLOSE" in g.shownText())
+    check("out of melee mode: stand-still window back", ns.ui.zone.shown)
+    g.combat = False
+    g.tick(22.6)
+    check("too close out of combat: bar goes", not timer.shown)
+    target.exists, target.close = False, False
+    db.showMelee = False
+    g.fire("PLAYER_ENTER_COMBAT")
+    g.fire("PLAYER_SWING", 1.8, 0)
+    g.tick(23.2)
+    check("melee option off: bar stays away", not timer.shown)
+    db.showMelee = True
+    g.fire("PLAYER_LEAVE_COMBAT")
+    ns.melee.lastSwing = None
+    # Auto Shot on: an "attack started" event alone must not turn the bar into MELEE.
+    g.fire("START_AUTOREPEAT_SPELL")
+    g.fire("PLAYER_SWING", 2.8, 2)
+    g.fire("PLAYER_ENTER_COMBAT")
+    g.tick(23.6)
+    check("shooting + attack event: still the shot bar", "MOVE" in g.shownText() and "MELEE" not in g.shownText())
+    # Melee swings while Auto Shot is toggled on (hunter in melee): melee wins...
+    g.fire("PLAYER_SWING", 1.8, 0)
+    g.tick(23.8)
+    check("melee swing while Auto Shot is on: MELEE", "MELEE" in g.shownText())
+    # ...until a shot fires after it: step back, shoot, and the shot bar is back at once.
+    g.fire("PLAYER_SWING", 2.8, 2)
+    g.tick(23.9)
+    check("shot after the swing: shot bar back at once", "MOVE" in g.shownText() and "MELEE" not in g.shownText())
+    g.fire("PLAYER_LEAVE_COMBAT")
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    ns.melee.lastSwing = None
+    g.tick(27.5)
+    # Melee attack switched on with the target at range (right-click): no MELEE bar.
+    target.exists, target.autoShot, target.close = True, True, False
+    g.fire("PLAYER_ENTER_COMBAT")
+    g.tick(28.0)
+    check("attack on, target in shooting range: no MELEE", "MELEE" not in g.shownText() and not timer.shown)
+    target.close, target.autoShot = True, False  # it runs up to you
+    g.tick(28.4)
+    check("attack on, target now too close: MELEE", "MELEE" in g.shownText())
+    g.fire("PLAYER_LEAVE_COMBAT")
+    # From melee straight into a new layout and back to shooting: the window comes back.
+    g.fire("PLAYER_SWING", 1.8, 0)
+    g.tick(28.6)
+    db.layout = "row"
+    ns.ApplyLayout()
+    g.tick(28.7)
+    check("melee survives a layout change", "MELEE" in g.shownText() and not ns.ui.zone.shown)
+    g.fire("START_AUTOREPEAT_SPELL")
+    g.fire("PLAYER_SWING", 2.8, 2)
+    g.tick(28.9)
+    check("then shooting: shot bar with its window", "MOVE" in g.shownText() and ns.ui.zone.shown)
+    db.layout = "standard"
+    ns.ApplyLayout()
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    target.exists, target.autoShot, target.close = False, None, False
+    ns.melee.lastSwing = None
+    g.tick(29.0)
+
     # Live ping from GetNetStats feeds the window within a few seconds.
     g.netWorld = 120
-    g.tick(24)
+    g.tick(35)
     check("live ping polled", abs(ns.Window() - 0.62) < 1e-9)
     g.netWorld = 0
-    g.tick(30)
+    g.tick(40)
 
     # --- Layout follows the settings -----------------------------------------------
     db.width, db.barHeight, db.fontSize, db.smallFontSize = 300, 20, 16, 11
@@ -565,7 +653,7 @@ def main():
     g.tick(37)
     check("demo shows while options open", timer.shown and rng.shown)
     boxes = list(g.checkboxes().values())
-    check("options has the checkboxes", len(boxes) == 18)
+    check("options has the checkboxes", len(boxes) == 19)
     first = boxes[6]  # "Status text" (left column first: ping, then the 5 vendor options)
     first.checked = False
     first.scripts.OnClick(first)
@@ -779,6 +867,10 @@ def main():
     g.fire("PLAYER_SWING", 1.8, 2)
     g.tick(51)
     check("no bar or range for other classes", not timer.shown and not rng.shown)
+    g.fire("PLAYER_ENTER_COMBAT")
+    g.fire("PLAYER_SWING", 1.8, 0)
+    g.tick(52)
+    check("no MELEE bar for other classes", not timer.shown and "MELEE" not in g.shownText())
     check("no vendor pins for other classes", pins(1429) == [] and mini() == [])
     check("messages in English", "Unlocked" in report and "Position reset" in report)
 

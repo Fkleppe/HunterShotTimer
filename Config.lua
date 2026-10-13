@@ -23,6 +23,7 @@ ns.DEFAULTS = {
   showFlash = true,
   showBorder = true,
   showShots = true, -- estimated Auto Shots to kill the target
+  showMelee = true, -- in melee range the bar stays: melee swing timer, or "too close"
   ammoDisplay = "percent", -- "off" / "percent" / "count"
 
   rangeEnabled = true,
@@ -45,6 +46,7 @@ ns.DEFAULTS = {
     zone = { 0.42, 0.11, 0.08, 0.9 },
     track = { 0.07, 0.07, 0.08, 0.88 },
     text = { 0.95, 0.95, 0.95, 1 },
+    melee = { 1.00, 0.78, 0.30, 1 },
   },
 }
 

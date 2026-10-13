@@ -310,6 +310,7 @@ local function build()
   swatch(win, "Background", MID + COL / 2, y, "track", true)
   y = y - 24
   swatch(win, "Countdown", MID, y, "text")
+  swatch(win, "Melee", MID + COL / 2, y, "melee")
   y = y - 30
   choice(win, "Bar texture", MID, y, "texture", ns.TEXTURES)
 
@@ -329,6 +330,9 @@ local function build()
   y = y - 24
   checkbox(win, "Border", RIGHT, y, "showBorder")
   checkbox(win, "Gradient fill", RIGHT + COL / 2, y, "gradient")
+  y = y - 24
+  checkbox(win, "Melee & too close", RIGHT, y, "showMelee",
+    "In melee range the bar stays up: while you swing it times your melee swings (MELEE, handy for Raptor Strike); otherwise it tells you to back off (TOO CLOSE).")
   y = y - 30
   choice(win, "Ammo left", RIGHT, y, "ammoDisplay", ns.AMMO_MODES)
 

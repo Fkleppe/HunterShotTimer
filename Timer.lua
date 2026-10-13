@@ -47,6 +47,36 @@ function ns.OnShot(now, duration)
   ns.state.lastShot, ns.state.speed = now, duration
 end
 
+-- Melee: main-hand swings (PLAYER_SWING type 0) while you auto-attack up close.
+ns.melee = { lastSwing = nil, speed = nil, attacking = false }
+
+function ns.OnMeleeSwing(now, duration)
+  if issecret(duration) or type(duration) ~= "number" or duration ~= duration or duration <= 0 or duration > 10 then return end
+  ns.melee.lastSwing, ns.melee.speed = now, duration
+end
+
+-- In melee? A melee swing within the last swing time (+ a little, in case the "attack
+-- stopped" event never comes) that is newer than your last Auto Shot: whatever happened
+-- last wins, so stepping back and shooting brings the shot bar back at once. Before the
+-- first swing, melee auto-attack being on counts too, but only with Auto Shot off and the
+-- target too close to shoot (`range` == "close"): right-clicking a target far away also
+-- switches melee attack on, and that must not turn the bar into MELEE.
+function ns.MeleeActive(now, range)
+  local m, s = ns.melee, ns.state
+  if m.lastSwing and now - m.lastSwing < m.speed + 0.5 and not (s.lastShot and s.lastShot > m.lastSwing) then
+    return true
+  end
+  return m.attacking and not s.shooting and range == "close"
+end
+
+-- Bar fill 0-1 and seconds to the next melee swing; nil before the first swing.
+function ns.MeleePhase(now)
+  local m = ns.melee
+  if not m.lastSwing then return 0, nil end
+  local elapsed = now - m.lastSwing
+  return math.min(1, elapsed / m.speed), math.max(0, m.speed - elapsed)
+end
+
 -- Range to the target from two plain answers: is Auto Shot in range, and is the target
 -- within ~10 yd (interact distance). Auto Shot fails both inside the 8 yd dead zone and
 -- past 35 yd, so "close" tells the two apart. nil = nothing to show.

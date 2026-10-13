@@ -25,6 +25,7 @@ ZONE = (0.42, 0.11, 0.08)
 TRACK = (0.07, 0.07, 0.08)
 TEXT = (0.95, 0.95, 0.95)
 MUTED = (0.62, 0.64, 0.67)
+MELEE = (1.00, 0.78, 0.30)
 RANGE = {"in": ("In range", (0.36, 0.82, 0.47)), "close": ("Too close", (1.00, 0.66, 0.20)),
          "far": ("Out of range", (0.96, 0.40, 0.29))}
 BANDS = [(70, "40d860"), (50, "a6d96a"), (30, "ffc04d"), (15, "ff8c2e"), (0, "f23a3a")]
@@ -90,10 +91,10 @@ def bullet_icon(d, x, y, size):
     d.rectangle([x0 + s * 0.3, y0 + s * 0.55, x0 + s * 0.7, y0 + s * 0.85], fill=(170, 120, 50, 255))
 
 
-def bar(img, x, y, length, thick, value, colour, speed=2.09, vertical=False):
+def bar(img, x, y, length, thick, value, colour, speed=2.09, vertical=False, window=WINDOW):
     """StatusBar with track, stand-still zone, gradient fill, divider, sheen, border, spark."""
     d = ImageDraw.Draw(img)
-    zone = length * min(WINDOW, speed) / speed
+    zone = length * min(window, speed) / speed
     if vertical:
         rect(d, x - 1, y - 1, x + thick + 1, y + length + 1, (0, 0, 0, 255))
         rect(d, x, y, x + thick, y + length, rgb(TRACK))
@@ -106,11 +107,13 @@ def bar(img, x, y, length, thick, value, colour, speed=2.09, vertical=False):
     else:
         rect(d, x - 1, y - 1, x + length + 1, y + thick + 1, (0, 0, 0, 255))
         rect(d, x, y, x + length, y + thick, rgb(TRACK))
-        rect(d, x + length - zone, y, x + length, y + thick, rgb(ZONE))
+        if zone > 0:
+            rect(d, x + length - zone, y, x + length, y + thick, rgb(ZONE))
         fill = length * value
         if fill > 0:
             gradient(img, x, y, x + fill, y + thick, rgb([c * 0.72 for c in colour]), rgb(colour))
-        d.line([((x + length - zone) * S, y * S), ((x + length - zone) * S, (y + thick) * S - 1)], fill=(255, 255, 255, 140), width=1)
+        if zone > 0:
+            d.line([((x + length - zone) * S, y * S), ((x + length - zone) * S, (y + thick) * S - 1)], fill=(255, 255, 255, 140), width=1)
         d.line([(x * S, y * S), ((x + length) * S - 1, y * S)], fill=(255, 255, 255, 30), width=1)
         spark_at = (x + fill, y + thick / 2)
     if 0 < value < 1:
@@ -143,7 +146,7 @@ def range_text(d, right_x, y, state, distance, align="right"):
     text(d, x0, y, s, SMALL, rgb(c), anchor="ls")
 
 
-def standard(img, ox, oy, status, scolour, countdown, value, pct, state, distance, info="2.09s   ~4 shots"):
+def standard(img, ox, oy, status, scolour, countdown, value, pct, state, distance, info="2.09s   ~4 shots", window=WINDOW, speed=2.09):
     d = ImageDraw.Draw(img)
     top = max(FONT_SIZE, SMALL) + GAP
     base = oy + top - GAP
@@ -154,7 +157,7 @@ def standard(img, ox, oy, status, scolour, countdown, value, pct, state, distanc
     if countdown:
         text(d, ox + WIDTH, base, countdown, FONT_SIZE, rgb(TEXT), anchor="rs", path=FONT_BOLD)
     ammo(d, ox + WIDTH - count_slot - ammo_w, base, pct)
-    bar(img, ox, oy + top, WIDTH, THICK, value, scolour)
+    bar(img, ox, oy + top, WIDTH, THICK, value, scolour, speed=speed, window=window)
     below = oy + top + THICK + GAP + SMALL
     text(d, ox, below, info, SMALL, rgb(MUTED), anchor="ls")
     range_text(d, ox + WIDTH, below, state, distance)
@@ -191,6 +194,17 @@ def render_phases():
     standard(img, x, y, "OUT OF RANGE", STAND, "", 1.0, 9, "far", "40-45 yd", info="2.09s")
     caption(img, x, 14, "Shot held up: target too far away")
     img.save(OUT / "bar-blocked.png")
+
+
+def render_melee():
+    img = canvas(520, 76)
+    x, y = 24, 22
+    standard(img, x, y, "MELEE", MELEE, "0.7", 0.61, 62, "close", "5-8 yd", info="1.80s melee", window=0, speed=1.8)
+    caption(img, x, 14, "Swinging in melee: time to your next swing")
+    x = 272
+    standard(img, x, y, "TOO CLOSE", STAND, "", 0.0, 62, "close", "5-8 yd", info="2.09s   ~4 shots")
+    caption(img, x, 14, "In combat, too close, not swinging")
+    img.save(OUT / "bar-melee.png")
 
 
 def render_layouts():
@@ -370,7 +384,7 @@ def render_settings():
     heading(MID, y, "Colors"); y -= 24
     swatch(MID, y, "Move", rgb(MOVE)); swatch(MID + COL / 2, y, "Stand still", rgb(STAND)); y -= 24
     swatch(MID, y, "Window", rgb(ZONE)); swatch(MID + COL / 2, y, "Background", rgb(TRACK)); y -= 24
-    swatch(MID, y, "Countdown", rgb(TEXT)); y -= 30
+    swatch(MID, y, "Countdown", rgb(TEXT)); swatch(MID + COL / 2, y, "Melee", rgb(MELEE)); y -= 30
     choice(MID, y, "Bar texture", "Flat")
 
     y = -34
@@ -378,7 +392,8 @@ def render_settings():
     checkbox(RIGHT, y, "Status text"); checkbox(RIGHT + COL / 2, y, "Countdown"); y -= 24
     checkbox(RIGHT, y, "Weapon speed"); checkbox(RIGHT + COL / 2, y, "Shots to kill"); y -= 24
     checkbox(RIGHT, y, "Spark"); checkbox(RIGHT + COL / 2, y, "Flash on shot"); y -= 24
-    checkbox(RIGHT, y, "Border"); checkbox(RIGHT + COL / 2, y, "Gradient fill"); y -= 30
+    checkbox(RIGHT, y, "Border"); checkbox(RIGHT + COL / 2, y, "Gradient fill"); y -= 24
+    checkbox(RIGHT, y, "Melee & too close"); y -= 30
     choice(RIGHT, y, "Ammo left", "Percent (62%)"); y -= 52
     heading(RIGHT, y, "Range check"); y -= 22
     checkbox(RIGHT, y, "Enabled"); checkbox(RIGHT + COL / 2, y, "Show text"); y -= 24
@@ -404,6 +419,7 @@ def render_settings():
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     render_phases()
+    render_melee()
     render_layouts()
     render_ammo()
     render_vendors()
