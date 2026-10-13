@@ -1,0 +1,22 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+  <!-- An ammo vendor on the world map: the ammo icon inside a ring in the vendor's faction colour.
+       The map calls OnLoad itself when it creates a pin. -->
+  <Button name="HunterShotTimerVendorPinTemplate" virtual="true" enableMouse="true" mixin="MapCanvasPinMixin,HunterShotTimerVendorPinMixin">
+    <Size x="18" y="18"/>
+    <Layers>
+      <Layer level="BACKGROUND">
+        <Texture parentKey="Ring"><Anchors><Anchor point="TOPLEFT"/><Anchor point="BOTTOMRIGHT"/></Anchors></Texture>
+      </Layer>
+      <Layer level="ARTWORK">
+        <Texture parentKey="Icon"><Anchors><Anchor point="TOPLEFT" x="2" y="-2"/><Anchor point="BOTTOMRIGHT" x="-2" y="2"/></Anchors></Texture>
+      </Layer>
+      <Layer level="OVERLAY">
+        <!-- How many vendors share this pin; empty for one. -->
+        <FontString parentKey="Count" inherits="NumberFontNormalSmall"><Anchors><Anchor point="BOTTOMRIGHT" x="5" y="-3"/></Anchors></FontString>
+      </Layer>
+      <Layer level="HIGHLIGHT">
+        <Texture parentKey="Hover" alphaMode="ADD"><Anchors><Anchor point="TOPLEFT"/><Anchor point="BOTTOMRIGHT"/></Anchors></Texture>
+      </Layer>
+    </Layers>
+  </Button>
+</Ui>
