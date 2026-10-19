@@ -47,8 +47,17 @@ def font(size, path=FONT):
     return ImageFont.truetype(path, int(size * S))
 
 
-def text(d, x, y, s, size, colour, anchor="la", path=FONT, shadow=True):
+def text(d, x, y, s, size, colour, anchor="la", path=FONT, shadow=True, alpha=1.0):
     f = font(size, path)
+    if alpha < 1:
+        # Draw on a layer and blend it, so a faded text mixes with what is under it.
+        if alpha <= 0.01:
+            return
+        layer = Image.new("RGBA", d._image.size, (0, 0, 0, 0))
+        text(ImageDraw.Draw(layer), x, y, s, size, colour, anchor, path, shadow)
+        layer.putalpha(layer.getchannel("A").point(lambda v: int(v * alpha)))
+        d._image.alpha_composite(layer)
+        return
     if shadow:
         d.text((x * S + S, y * S + S), s, font=f, fill=(0, 0, 0, 220), anchor=anchor)
     d.text((x * S, y * S), s, font=f, fill=colour, anchor=anchor)
@@ -107,12 +116,12 @@ def bar(img, x, y, length, thick, value, colour, speed=2.09, vertical=False, win
     else:
         rect(d, x - 1, y - 1, x + length + 1, y + thick + 1, (0, 0, 0, 255))
         rect(d, x, y, x + length, y + thick, rgb(TRACK))
-        if zone > 0:
+        if zone >= 0.5:
             rect(d, x + length - zone, y, x + length, y + thick, rgb(ZONE))
         fill = length * value
         if fill > 0:
             gradient(img, x, y, x + fill, y + thick, rgb([c * 0.72 for c in colour]), rgb(colour))
-        if zone > 0:
+        if zone >= 0.5:
             d.line([((x + length - zone) * S, y * S), ((x + length - zone) * S, (y + thick) * S - 1)], fill=(255, 255, 255, 140), width=1)
         d.line([(x * S, y * S), ((x + length) * S - 1, y * S)], fill=(255, 255, 255, 30), width=1)
         spark_at = (x + fill, y + thick / 2)
@@ -146,20 +155,20 @@ def range_text(d, right_x, y, state, distance, align="right"):
     text(d, x0, y, s, SMALL, rgb(c), anchor="ls")
 
 
-def standard(img, ox, oy, status, scolour, countdown, value, pct, state, distance, info="2.09s   ~4 shots", window=WINDOW, speed=2.09):
+def standard(img, ox, oy, status, scolour, countdown, value, pct, state, distance, info="2.09s   ~4 shots", window=WINDOW, speed=2.09, text_alpha=1.0):
     d = ImageDraw.Draw(img)
     top = max(FONT_SIZE, SMALL) + GAP
     base = oy + top - GAP
-    text(d, ox, base, status, FONT_SIZE, rgb(scolour), anchor="ls", path=FONT_BOLD)
+    text(d, ox, base, status, FONT_SIZE, rgb(scolour), anchor="ls", path=FONT_BOLD, alpha=text_alpha)
     count_w = math.ceil(FONT_SIZE * 2.2)
     count_slot = count_w + 8
     ammo_w = SMALL + 3 + math.ceil(SMALL * 2.6)
     if countdown:
-        text(d, ox + WIDTH, base, countdown, FONT_SIZE, rgb(TEXT), anchor="rs", path=FONT_BOLD)
+        text(d, ox + WIDTH, base, countdown, FONT_SIZE, rgb(TEXT), anchor="rs", path=FONT_BOLD, alpha=text_alpha)
     ammo(d, ox + WIDTH - count_slot - ammo_w, base, pct)
     bar(img, ox, oy + top, WIDTH, THICK, value, scolour, speed=speed, window=window)
     below = oy + top + THICK + GAP + SMALL
-    text(d, ox, below, info, SMALL, rgb(MUTED), anchor="ls")
+    text(d, ox, below, info, SMALL, rgb(MUTED), anchor="ls", alpha=text_alpha)
     range_text(d, ox + WIDTH, below, state, distance)
 
 
@@ -416,10 +425,85 @@ def render_settings():
     img.save(OUT / "settings.png")
 
 
+def smooth(t):
+    return t * t * (3 - 2 * t)  # as Bar.lua
+
+
+def render_switch():
+    """MELEE to the shot bar as Bar.lua glides it: over BLEND_TIME the fill, colour and window
+    ease to their new place, and the texts fade out and come back with the new words."""
+    blend_time, speed = 0.2, 2.09
+    frames = [0, 0.25, 0.5, 0.75, 1]
+    row = 52
+    img = canvas(330, 14 + row * len(frames))
+    d = ImageDraw.Draw(img)
+    from_value = 0.61
+    for i, b in enumerate(frames):
+        e = smooth(b)
+        y = 12 + row * i
+        since_shot = b * blend_time  # you stepped back and shot; the switch starts with the shot
+        value = from_value + (since_shot / speed - from_value) * e
+        colour = tuple(MELEE[k] + (MOVE[k] - MELEE[k]) * e for k in range(3))
+        swapped = b >= 0.5
+        alpha = 1.0 if b >= 1 else abs(1 - 2 * b)
+        left = speed - since_shot - WINDOW
+        standard(img, 84, y, "MOVE" if swapped else "MELEE", colour, f"{left:.1f}" if swapped else "0.7",
+                 value, 62, "in", "8-10 yd", info="2.09s   ~4 shots" if swapped else "1.80s melee",
+                 window=WINDOW * e, speed=speed, text_alpha=alpha)
+        text(d, 24, y + 23, f"{int(round(since_shot * 1000))} ms", 11, (170, 176, 170, 255),
+             anchor="ls", path=UI_FONT, shadow=False)
+    img.save(OUT / "bar-switch.png")
+
+
+def render_timing():
+    """What /hst timing prints, from Timer.lua's own ns.TimingReport() (needs lupa)."""
+    import lupa.lua51 as lupa
+    lua = lupa.LuaRuntime()
+    lua.execute("issecret = function() return false end")
+    ns = lua.eval("{}")
+    lua.eval("function(s) return assert(loadstring(s, 'Timer.lua')) end")(
+        (ROOT / "Timer.lua").read_text(encoding="utf-8"))("HunterShotTimer", ns)
+    lua.execute("function fillGaps(ns, list) ns.gaps = {} for i, g in ipairs(list) do ns.gaps[i] = { gap = g, speed = 2.09 } end end")
+    lua.globals().fillGaps(ns, lua.table(2.11, 2.08, 2.10, 2.12, 4.30, 2.09, 2.10))
+    lines = list(ns.TimingReport().values())
+
+    size, lh = 11, 15
+    f = font(size, FONT)
+    w = 20 + max(f.getlength(l) for l in lines) / S + 20
+    prefix = "Hunter Shot Timer "
+    out = [(prefix, "Auto Shot timing (stand still and shoot first):")]
+    for line in lines:
+        cur = "  "
+        for word in line.split(" "):
+            trial = cur + word if cur.strip() == "" else cur + " " + word
+            if f.getlength(trial) / S > w - 20 and cur.strip():
+                out.append(("", cur))
+                cur = "    " + word
+            else:
+                cur = trial
+        out.append(("", cur))
+    h = 14 + lh * len(out)
+    img = canvas(w + 48, h + 28)
+    d = ImageDraw.Draw(img)
+    rect(d, 24, 14, 24 + w, 14 + h, (10, 12, 10, 255))  # the chat frame's dark background
+    y = 14 + 7 + size
+    for pre, body in out:
+        x = 34
+        if pre:
+            text(d, x, y, pre, size, (171, 212, 115, 255), anchor="ls")
+            x += f.getlength(pre) / S
+        colour = (170, 170, 170, 255) if "left out" in body else (255, 255, 255, 255)
+        text(d, x, y, body, size, colour, anchor="ls")
+        y += lh
+    img.save(OUT / "timing.png")
+
+
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     render_phases()
     render_melee()
+    render_switch()
+    render_timing()
     render_layouts()
     render_ammo()
     render_vendors()
