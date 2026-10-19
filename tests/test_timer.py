@@ -19,7 +19,10 @@ SlashCmdList = {}
 UISpecialFrames = {}
 UIParent = {}
 frames = {}
-function CreateColor(r, g, b, a) return { r, g, b, a } end
+local Color = {}
+Color.__index = Color
+function Color:SetRGBA(r, g, b, a) self[1], self[2], self[3], self[4] = r, g, b, a end
+function CreateColor(r, g, b, a) return setmetatable({ r, g, b, a }, Color) end
 netWorld = 0
 function GetNetStats() return 0, 0, 40, netWorld end
 combat = false
@@ -212,6 +215,8 @@ function Region:SetShown(on) if on then self:Show() else self:Hide() end end
 function Region:SetAlpha(a) self.alpha = a end
 function Region:EnableMouse(on) self.mouse = on end
 function Region:SetValue(v) self.value = v end
+-- The bar's fill colour as drawn: the bright end of the gradient.
+function Region:SetGradient(_, low, high) self.r, self.g, self.b = high[1], high[2], high[3] end
 function Region:SetChecked(v) self.checked = v end
 function Region:GetChecked() return self.checked end
 function Region:GetStatusBarTexture() return self.fill end
@@ -454,14 +459,30 @@ def main():
     check("melee: the last swing finishes", "MELEE" in g.shownText())
     g.tick(21.0)
     check("melee: gone once you stop attacking (out of combat)", not timer.shown)
-    # In combat and too close, but not swinging: Auto Shot cannot fire, so say so.
+    # Right at the edge of melee the range check flips back and forth: a short blip of
+    # "too close" must not make the bar jump.
+    target.exists, target.autoShot, target.close = True, False, False
+    g.tick(21.3)
     g.combat = True
-    target.exists, target.autoShot, target.close = True, False, True
+    target.close = True
+    g.tick(21.4)
+    target.close = False
     g.tick(21.6)
+    check("a 0.1 s blip of too close: bar does not react", not timer.shown)
+    # In combat and too close, but not swinging: Auto Shot cannot fire, so say so.
+    target.close = True
+    g.tick(22.0)
     check("too close in combat: bar stays with TOO CLOSE", timer.shown and "TOO CLOSE" in g.shownText())
     check("out of melee mode: stand-still window back", ns.ui.zone.shown)
+    # Auto Shot switched on while too close: the held-up shot says TOO CLOSE as well, so
+    # only the colour glides; the words do not blink.
+    g.fire("START_AUTOREPEAT_SPELL")
+    g.tick(22.05)
+    check("same words across a switch: no blink", "TOO CLOSE" in g.shownText() and ns.ui.status.alpha == 1)
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    g.tick(22.3)
     g.combat = False
-    g.tick(22.6)
+    g.tick(22.9)
     check("too close out of combat: bar goes", not timer.shown)
     target.exists, target.close = False, False
     db.showMelee = False
@@ -482,10 +503,24 @@ def main():
     g.fire("PLAYER_SWING", 1.8, 0)
     g.tick(23.8)
     check("melee swing while Auto Shot is on: MELEE", "MELEE" in g.shownText())
-    # ...until a shot fires after it: step back, shoot, and the shot bar is back at once.
+    # ...until a shot fires after it: step back, shoot, and the shot bar is back at once,
+    # gliding over: no hard cut between melee and ranged.
+    before = ns.bar.value
     g.fire("PLAYER_SWING", 2.8, 2)
-    g.tick(23.9)
-    check("shot after the swing: shot bar back at once", "MOVE" in g.shownText() and "MELEE" not in g.shownText())
+    g.tick(23.85)
+    st = ns.ui.status
+    check("switch starts at once: the old text fading out", "MELEE" in g.shownText() and 0 < st.alpha < 1)
+    check("switch: the fill glides instead of jumping", 0.02 < ns.bar.value < before)
+    g.tick(23.95)
+    check("switch: halfway the new text is fading in", "MOVE" in g.shownText() and "MELEE" not in g.shownText()
+          and st.alpha < 1)
+    g.tick(24.05)
+    move = db.colors.move
+    fill = ns.bar.fill
+    check("switch done: shot bar, full text, exact colour", "MOVE" in g.shownText() and st.alpha == 1
+          and ns.ui.countdown.alpha == 1 and abs(fill.r - move[1]) < 1e-9 and abs(fill.g - move[2]) < 1e-9)
+    check("switch done: stand-still window full size", ns.ui.zone.shown
+          and abs(ns.ui.zone.width - db.width * ns.Window() / 2.8) < 1e-6)
     g.fire("PLAYER_LEAVE_COMBAT")
     g.fire("STOP_AUTOREPEAT_SPELL")
     ns.melee.lastSwing = None
@@ -508,6 +543,13 @@ def main():
     check("melee survives a layout change", "MELEE" in g.shownText() and not ns.ui.zone.shown)
     g.fire("START_AUTOREPEAT_SPELL")
     g.fire("PLAYER_SWING", 2.8, 2)
+    g.tick(28.75)
+    db.layout = "standard"
+    ns.ApplyLayout()  # mid-switch: the switch just lands, nothing is left half-faded
+    g.tick(28.8)
+    check("layout change mid-switch: lands at once", "MOVE" in g.shownText() and ns.ui.status.alpha == 1)
+    db.layout = "row"
+    ns.ApplyLayout()
     g.tick(28.9)
     check("then shooting: shot bar with its window", "MOVE" in g.shownText() and ns.ui.zone.shown)
     db.layout = "standard"
@@ -873,6 +915,38 @@ def main():
     check("no MELEE bar for other classes", not timer.shown and "MELEE" not in g.shownText())
     check("no vendor pins for other classes", pins(1429) == [] and mini() == [])
     check("messages in English", "Unlocked" in report and "Position reset" in report)
+
+    # --- /hst timing (16 October build: 0.5 s of standing still before Auto Shot) ----
+    g.playerClass = "HUNTER"
+    g.fire("PLAYER_ENTERING_WORLD")
+
+    def shots(times, speed=2.0):
+        for t in times:
+            g.setClock(t)
+            g.fire("PLAYER_SWING", speed, 2)
+
+    def timing():
+        n = len(g.printed)
+        g.SlashCmdList.HUNTERSHOTTIMER("timing")
+        return [g.printed[i] for i in range(n + 1, len(g.printed) + 1)]
+
+    out = timing()
+    check("timing: asks for shots first", any("Not enough shots" in l for l in out))
+    shots([1000 + 2.0 * i for i in range(7)])
+    out = timing()
+    check("timing: half second inside the swing", any("inside the swing. The bar is right." in l for l in out))
+    check("timing: one line per gap", sum(1 for l in out if " s apart, speed " in l) == 6)
+    g.fire("PLAYER_ENTERING_WORLD")
+    shots([2000 + 2.5 * i for i in range(7)])
+    out = timing()
+    check("timing: half second on top of the swing", any("added on top of the swing" in l for l in out))
+    g.fire("PLAYER_ENTERING_WORLD")
+    shots([3000, 3002, 3004, 3009, 3011, 3013])  # one gap held up by moving
+    out = timing()
+    check("timing: held-up gap left out", any("held up, left out" in l for l in out) and any("The bar is right." in l for l in out))
+    g.fire("PLAYER_ENTERING_WORLD")
+    shots([4000 + 2.0 * i for i in range(30)])
+    check("timing: keeps only the last 10 gaps", len(ns.gaps) == 10)
 
     print({"result": "PASS", "checks": len(checks)})
 

@@ -109,6 +109,11 @@ When you are too close for Auto Shot, the bar does not disappear:
   or more, or start meleeing. Melee mode starts once you actually swing at a target in
   melee range; switching attack on at range does not turn the bar into MELEE.
 
+Going between ranged and melee is never a hard cut. Over a fifth of a second the fill
+glides to its new place, the colour and the stand-still window follow, and the texts fade
+out and back in with the new words. Right at the edge of melee range the bar waits until
+"too close" has held for a moment, so it does not flicker back and forth.
+
 Switch it off with **Melee & too close** in the settings; the melee colour is under Colors.
 
 ### Range check and distance
@@ -193,6 +198,7 @@ restores every default but keeps the bar where it is.
 | `/hst reset` | Move the bar back to its default place |
 | `/hst range` | Print what the range check reads, for a target in front of you |
 | `/hst probe` | Print what the shots-to-kill estimate can read (run it mid-fight) |
+| `/hst timing` | After 6 Auto Shots standing still: how far apart they came, next to your speed |
 
 ---
 

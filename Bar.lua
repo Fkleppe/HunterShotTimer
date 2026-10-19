@@ -6,6 +6,8 @@ local DEMO_SHOTS = 4
 local DEMO_AMMO = { count = "|cff40d8601200|r", percent = "|cffa6d96a60%|r" }
 local DEMO_AMMO_ICON = 132382 -- Rough Arrow
 local RANGE_INTERVAL = 0.1
+local BLEND_TIME = 0.2 -- switching between shot, melee and "too close" glides over this long
+local CLOSE_HOLD = 0.2 -- "too close" must hold this long before the bar changes over (and back)
 local LATENCY_INTERVAL = 5
 local DAMAGE_INTERVAL = 2
 local GAP = 4 -- between text and the bar
@@ -118,6 +120,26 @@ local infoShare = false -- info and range share the row under the bar
 local lastLabel, shownSpeed, shownWindow, shownInfo, shownAmmo
 -- What each widget shows now, so a frame only touches widgets whose content changed.
 local shown = {}
+
+-- Switching between modes (Auto Shot, melee, too close) is never a hard cut: over
+-- BLEND_TIME the fill glides to its new place, the colour and the stand-still window
+-- follow, and the texts dip out and back in with the new words at the halfway point.
+-- `blend` runs 0 -> 1 during a switch and stays 1 otherwise, so a steady bar pays nothing.
+local mode, prevMode -- what the bar shows now, and before the current switch
+local blend = 1
+local from = { value = 0, colour = { 1, 1, 1, 1 }, zone = 0, label = nil }
+local shownValue, shownZone = 0, 0
+local shownColour = { 1, 1, 1, 1 }
+local mix = { 1, 1, 1, 1 }
+local textAlpha, infoFits = 1, true
+local function smooth(t) return t * t * (3 - 2 * t) end
+
+local function setTextAlpha(a)
+  textAlpha = a
+  status:SetAlpha(a)
+  countdown:SetAlpha(a)
+  info:SetAlpha(infoFits and a or 0)
+end
 
 -- Every text has a fixed slot, so nothing can run into anything else: a text too long
 -- for its slot is cut off with "...", never drawn over its neighbour.
@@ -279,14 +301,20 @@ function ns.ApplyLayout()
     end
   end
 
-  -- Force colours, sizes and text to refresh on the next frame.
-  lastLabel, shownSpeed, shownWindow, shownInfo, shownAmmo = nil, nil, nil, nil, nil
+  -- Force colours, sizes and text to refresh on the next frame (a switch in progress just lands).
+  lastLabel, shownSpeed, shownWindow, shownInfo, shownAmmo, shownZone = nil, nil, nil, nil, nil, nil
   shown = {}
+  blend = 1
+  setTextAlpha(1)
 end
 
 -- Info shares its row with the range check: give it only the width the range text leaves.
 local function fitInfo(rangeVisible)
-  if not infoShare then info:SetAlpha(1); return end
+  if not infoShare then
+    infoFits = true
+    info:SetAlpha(textAlpha)
+    return
+  end
   local used = 0
   if rangeVisible then
     used = dot:GetWidth() + 10
@@ -296,18 +324,28 @@ local function fitInfo(rangeVisible)
   -- Too narrow to say anything useful: leave the row to the range check.
   local fits = room >= (ns.db.smallFontSize * 2)
   info:SetWidth(math.max(1, room))
-  info:SetAlpha(fits and 1 or 0)
+  infoFits = fits
+  info:SetAlpha(fits and textAlpha or 0)
 end
 
 -- The stand-still window at the end of the bar; `window` 0 hides it (melee has none).
+-- During a switch it slides from its old size to the new one.
 local function setSpeed(speed, window)
   window = window or ns.Window()
-  if speed == shownSpeed and window == shownWindow then return end
-  shownSpeed, shownWindow = speed, window
-  local size = barLength * math.min(window, speed) / speed
+  local size
+  if blend < 1 then
+    local goal = barLength * math.min(window, speed) / speed
+    size = from.zone + (goal - from.zone) * smooth(blend)
+  else
+    if speed == shownSpeed and window == shownWindow then return end
+    shownSpeed, shownWindow = speed, window
+    size = barLength * math.min(window, speed) / speed
+  end
+  if size == shownZone then return end
+  shownZone = size
   if vertical then zone:SetHeight(math.max(1, size)) else zone:SetWidth(math.max(1, size)) end
-  zone:SetShown(size > 0)
-  divider:SetShown(size > 0)
+  zone:SetShown(size >= 0.5)
+  divider:SetShown(size >= 0.5)
 end
 
 -- "2.80s   ~4 shots", each part only when it is switched on and known. Rebuilt only when
@@ -340,17 +378,28 @@ local function setAmmo(value, icon)
   end
 end
 
+-- Two reusable colour objects for the gradient, so a switch's per-frame colour glide
+-- creates no garbage.
+local gradLow, gradHigh
+local function gradient(tex, direction, r1, g1, b1, r2, g2, b2, a)
+  if not gradLow then gradLow, gradHigh = CreateColor(0, 0, 0, 1), CreateColor(0, 0, 0, 1) end
+  gradLow:SetRGBA(r1, g1, b1, a)
+  gradHigh:SetRGBA(r2, g2, b2, a)
+  tex:SetGradient(direction, gradLow, gradHigh)
+end
+
 local function fill(colour)
   local r, g, b, a = colour[1], colour[2], colour[3], colour[4] or 1
+  shownColour[1], shownColour[2], shownColour[3], shownColour[4] = r, g, b, a
   local tex = bar:GetStatusBarTexture()
   local direction = vertical and "VERTICAL" or "HORIZONTAL"
   if ns.db.gradient and CreateColor and tex.SetGradient then
     tex:SetVertexColor(1, 1, 1, 1)
-    tex:SetGradient(direction, CreateColor(r * 0.72, g * 0.72, b * 0.72, a), CreateColor(r, g, b, a))
+    gradient(tex, direction, r * 0.72, g * 0.72, b * 0.72, r, g, b, a)
   else
     if CreateColor and tex.SetGradient then
       -- Clear any earlier gradient so the flat colour shows as picked.
-      tex:SetGradient(direction, CreateColor(1, 1, 1, 1), CreateColor(1, 1, 1, 1))
+      gradient(tex, direction, 1, 1, 1, 1, 1, 1, 1)
     end
     bar:SetStatusBarColor(r, g, b, a)
     tex:SetVertexColor(r, g, b, a)
@@ -362,17 +411,35 @@ local rangeState, rangeWait, shots, ammo = nil, 0, nil, nil
 -- Draw one state of the bar: fill, spark, status text and colour, countdown (nil = none).
 -- `key` tells states with the same text apart (a late "TOO CLOSE" shot vs. melee range).
 local function paint(now, value, left, label, colour, key, pulse)
+  -- Mid-switch: glide fill and colour from where they were; the old texts stay up
+  -- (fading out) until halfway, then the new ones fade in.
+  local swapped = blend >= 0.5
+  if blend < 1 then
+    local e = smooth(blend)
+    value = from.value + (value - from.value) * e
+    local c = from.colour
+    for i = 1, 3 do mix[i] = c[i] + (colour[i] - c[i]) * e end
+    mix[4] = colour[4] or 1
+    fill(mix)
+    status:SetTextColor(mix[1], mix[2], mix[3])
+    -- Same words before and after (a held-up "TOO CLOSE" shot becoming melee range's
+    -- "TOO CLOSE"): only the colour glides, the text does not blink.
+    setTextAlpha(label == from.label and 1 or math.abs(1 - 2 * blend))
+  end
+  shownValue = value
   bar:SetValue(value)
   if vertical then
     spark:SetPoint("CENTER", bar, "BOTTOM", 0, barLength * value)
   else
     spark:SetPoint("CENTER", bar, "LEFT", barLength * value, 0)
   end
-  if key ~= lastLabel then
-    lastLabel = key
-    fill(colour)
+  if key ~= lastLabel and swapped then
+    lastLabel, shown.label = key, label
     status:SetText(label)
-    status:SetTextColor(colour[1], colour[2], colour[3])
+    if blend >= 1 then
+      fill(colour)
+      status:SetTextColor(colour[1], colour[2], colour[3])
+    end
   end
   -- Overdue shot: pulse the spark so it reads as "waiting on you".
   if ns.db.showSpark ~= shown.spark then
@@ -388,7 +455,7 @@ local function paint(now, value, left, label, colour, key, pulse)
   end
   -- The countdown shows tenths: new text ten times a second, not every frame.
   local tenths = left and math.floor(left * 10 + 0.5) or -1
-  if tenths ~= shown.tenths then
+  if tenths ~= shown.tenths and swapped then
     shown.tenths = tenths
     countdown:SetText(tenths < 0 and "" or string.format("%.1f", tenths / 10))
   end
@@ -458,6 +525,43 @@ local function inCombat()
   return not ns.issecret(v) and v and true or false
 end
 
+-- Start gliding to `new`. A bar that is not on screen yet just shows the new mode: its
+-- own fade-in is the transition.
+local function switchTo(new)
+  if new == mode then return end
+  if mode and timer:IsShown() and (alpha[timer] or 0) > 0.05 then
+    blend = 0
+    from.value, from.zone, from.label = shownValue, shownZone or 0, shown.label
+    for i = 1, 4 do from.colour[i] = shownColour[i] end
+  else
+    blend = 1
+  end
+  prevMode, mode = mode, new
+end
+
+-- Move a switch along; at the end, hand back to the cached (change-only) drawing.
+local function advanceBlend(dt)
+  if blend >= 1 then return end
+  blend = blend + dt / BLEND_TIME
+  if blend > 0.999 then
+    blend = 1
+    lastLabel, shownSpeed, shown.tenths = nil, nil, nil -- final colour, window and countdown
+    setTextAlpha(1)
+  end
+end
+
+-- The range check flips between "too close" and "in range" right at the edge of melee;
+-- the bar only follows once it has held for CLOSE_HOLD, so it never flickers there.
+local closeHeld, closeTime = false, 0
+local function holdClose(dt)
+  if (rangeState == "close") == closeHeld then
+    closeTime = 0
+    return
+  end
+  closeTime = closeTime + dt
+  if closeTime >= CLOSE_HOLD then closeHeld, closeTime = not closeHeld, 0 end
+end
+
 local latencyWait, damageWait = 0, 0
 frame:SetScript("OnUpdate", function(_, dt)
   if not ns.db then return end
@@ -483,6 +587,8 @@ frame:SetScript("OnUpdate", function(_, dt)
 
   if ns.unlocked then
     rangeState = nil
+    switchTo("shot")
+    advanceBlend(dt)
     render(now, now - now % DEMO_SPEED, DEMO_SPEED)
     setInfo(DEMO_SPEED, DEMO_SHOTS)
     setAmmo(DEMO_AMMO[db.ammoDisplay], ns.ammo.icon or DEMO_AMMO_ICON)
@@ -496,18 +602,25 @@ frame:SetScript("OnUpdate", function(_, dt)
   local s = ns.state
   local active = false
   local melee = ns.isHunter and db.showMelee
-  local infoSpeed, meleeOn = s.speed, melee and ns.MeleeActive(now, rangeState)
+  holdClose(dt)
+  local meleeOn = melee and ns.MeleeActive(now, closeHeld and "close" or nil)
   if meleeOn then
     -- Swinging in melee: the bar times your melee swings instead of fading away.
+    switchTo("melee")
+    advanceBlend(dt)
     renderMelee(now)
-    active, infoSpeed = true, ns.melee.speed
-  elseif melee and rangeState == "close" and inCombat() and not s.shooting then
+    active = true
+  elseif melee and closeHeld and inCombat() and not s.shooting then
     -- Too close to shoot and not swinging: say so instead of fading away.
+    switchTo("close")
+    advanceBlend(dt)
     renderClose(now)
     active = true
   elseif s.lastShot then
     -- Keep the bar while Auto Shot is on; once it is off, let the current swing finish
     -- (and keep drawing it while it fades).
+    switchTo("shot")
+    advanceBlend(dt)
     active = render(now, s.lastShot, s.speed) ~= "late" or s.shooting
   end
   fade(timer, active, dt)
@@ -537,8 +650,10 @@ frame:SetScript("OnUpdate", function(_, dt)
     setAmmo(ammo, ns.ammo.icon)
     fitInfo(rangeState ~= nil)
   end
-  -- Shots to kill counts Auto Shots, so it is left out while you fight in melee.
-  setInfo(infoSpeed, not meleeOn and shots or nil, meleeOn)
+  -- Shots to kill counts Auto Shots, so it is left out while you fight in melee. Mid-switch
+  -- the old line stays until the texts swap.
+  local meleeText = (blend >= 0.5 and mode or prevMode) == "melee"
+  setInfo(meleeText and ns.melee.speed or s.speed, not meleeText and shots or nil, meleeText)
   fade(range, rangeState ~= nil and (active or db.rangeWhenIdle), dt)
 end)
 
@@ -577,6 +692,8 @@ SlashCmdList.HUNTERSHOTTIMER = function(msg)
     ns.Say("Position reset.")
   elseif msg == "range" then
     report("Range check:", ns.RangeReport())
+  elseif msg == "timing" then
+    report("Auto Shot timing (stand still and shoot first):", ns.TimingReport())
   elseif msg == "probe" then
     report("Shots to kill (run this mid-fight):", ns.ProbeReport())
   elseif msg == "lock" or msg == "unlock" or msg == "move" then
@@ -622,6 +739,7 @@ events:SetScript("OnEvent", function(_, event, a, b)
     local _, class = UnitClass("player")
     ns.isHunter = class == "HUNTER"
     ns.state.lastShot, ns.state.shooting = nil, false
+    ns.gaps = {}
     ns.melee.lastSwing, ns.melee.speed, ns.melee.attacking = nil, nil, false
     ns.UpdateShotDamage()
     ns.RefreshAmmo()

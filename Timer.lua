@@ -28,7 +28,8 @@ end
 
 -- Where the shot cycle is at time `now`.
 -- Returns phase ("move" / "stand" / "late"), bar fill 0-1, and seconds left in the phase.
--- "late" means the swing is over but no shot has fired yet (you moved, or Aimed Shot):
+-- "late" means the swing is over but no shot has fired yet (you moved, or are out of range;
+-- since the 16 October build Auto Shot keeps firing while you cast Aimed Shot):
 -- keep standing still until it does.
 function ns.Phase(now, lastShot, speed)
   local elapsed = now - lastShot
@@ -41,10 +42,50 @@ end
 
 ns.state = { lastShot = nil, speed = nil, shooting = false }
 
+-- The last few gaps between Auto Shots, next to the speed the game reported, for
+-- /hst timing: since the 16 October beta build Auto Shot needs 0.5 s of standing still,
+-- and these show whether that half second sits inside the swing (gap = speed) or comes
+-- on top of it (gap = speed + 0.5).
+ns.gaps = {}
+local MAX_GAPS = 10
+
 -- PLAYER_SWING carries the real ranged speed of every shot, haste included.
 function ns.OnShot(now, duration)
   if issecret(duration) or type(duration) ~= "number" or duration ~= duration or duration <= 0 or duration > 10 then return end
-  ns.state.lastShot, ns.state.speed = now, duration
+  local s = ns.state
+  if s.lastShot and s.speed then
+    table.insert(ns.gaps, { gap = now - s.lastShot, speed = s.speed })
+    if #ns.gaps > MAX_GAPS then table.remove(ns.gaps, 1) end
+  end
+  s.lastShot, s.speed = now, duration
+end
+
+-- Gaps longer than this past the speed were held up (moving, out of range): left out.
+ns.HELD_UP = 1.2
+
+-- /hst timing: the measured gaps and what they say about the bar.
+function ns.TimingReport()
+  local lines, extra, n = {}, 0, 0
+  for i, g in ipairs(ns.gaps) do
+    local over = g.gap - g.speed
+    local held = over > ns.HELD_UP
+    lines[#lines + 1] = string.format("%d. %.2f s apart, speed %.2f s (%+.2f s)%s", i, g.gap, g.speed, over,
+      held and " - held up, left out" or "")
+    if not held then extra, n = extra + over, n + 1 end
+  end
+  if n < 3 then
+    lines[#lines + 1] = "Not enough shots yet: stand still and let Auto Shot fire 6 times, then type /hst timing."
+    return lines
+  end
+  extra = extra / n
+  if extra < 0.15 then
+    lines[#lines + 1] = string.format("Shots come %.2f s after the speed on average: the half second is inside the swing. The bar is right.", extra)
+  elseif extra > 0.35 and extra < 0.75 then
+    lines[#lines + 1] = string.format("Shots come %.2f s after the speed on average: the half second is added on top of the swing. The bar needs a change.", extra)
+  else
+    lines[#lines + 1] = string.format("Shots come %.2f s after the speed on average: unclear. Stand still and try again.", extra)
+  end
+  return lines
 end
 
 -- Melee: main-hand swings (PLAYER_SWING type 0) while you auto-attack up close.
