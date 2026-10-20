@@ -318,7 +318,7 @@ local function build()
   y = -34
   heading(win, "Show", RIGHT, y)
   y = y - 22
-  checkbox(win, "Status text", RIGHT, y, "showStatus", "MOVE / STAND STILL.")
+  checkbox(win, "Status text", RIGHT, y, "showStatus", "MOVE / STAND STILL / STOP.")
   checkbox(win, "Countdown", RIGHT + COL / 2, y, "showCountdown", "Seconds left in the current phase.")
   y = y - 24
   checkbox(win, "Weapon speed", RIGHT, y, "showSpeed", "Your ranged speed from the last shot, haste included.")

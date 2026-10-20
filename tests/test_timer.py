@@ -11,6 +11,9 @@ FILES = [line.strip() for line in (ROOT / "HunterShotTimer.toc").read_text(encod
 MOCK = r"""
 local clock = 0
 function GetTime() return clock end
+playerSpeed, falling = nil, false -- nil: the client does not tell (movement unknown)
+function GetUnitSpeed() return playerSpeed end
+function IsFalling() return falling end
 function setClock(t) clock = t end
 issecretvalue = function(v) return v == "SECRET" end
 printed = {}
@@ -951,6 +954,54 @@ def main():
     g.fire("PLAYER_ENTERING_WORLD")
     shots([4000 + 2.0 * i for i in range(30)])
     check("timing: keeps only the last 10 gaps", len(ns.gaps) == 10)
+
+    # --- Movement: the bar knows when you stand still ------------------------------
+    g.fire("PLAYER_ENTERING_WORLD")
+    g.fire("START_AUTOREPEAT_SPELL")
+    g.playerSpeed = 7
+    g.setClock(7000)
+    g.fire("PLAYER_SWING", 2.0, 2)
+    g.tick(7001.0)
+    check("moving early in the swing: MOVE", "MOVE" in g.shownText())
+    g.tick(7001.6)
+    check("moving where you must stand still: STOP, no countdown", "STOP" in g.shownText()
+          and "STAND STILL" not in g.shownText() and ns.ui.countdown.text == "")
+    g.playerSpeed = 0
+    g.tick(7001.7)  # stopped 0.3 s before the swing ends: the shot waits for a full window
+    w, still = ns.Window(), ns.move.stillSince
+    def shown_left(t):
+        return ns.ui.countdown.text == "%.1f" % (int((t - g.GetTime()) * 10 + 0.5) / 10)
+    check("stopped late: the bar sees you stand still", 7001.6 < still <= 7001.7)
+    check("stopped late: countdown to the real shot, a full window after you stopped",
+          "STAND STILL" in g.shownText() and shown_left(still + w) and still + w > 7002.0)
+    g.tick(7002.0)
+    check("swing over, still standing: still counting down", "STAND STILL" in g.shownText() and shown_left(still + w))
+    g.setClock(still + w)
+    g.fire("PLAYER_SWING", 2.0, 2)
+    g.tick(7002.4)
+    check("shot fired: MOVE again", "MOVE" in g.shownText())
+    g.tick(still + w + 2.0 - 0.2)
+    check("standing still through the window: countdown to the swing end",
+          "STAND STILL" in g.shownText() and shown_left(still + w + 2.0))
+    g.falling = True
+    g.tick(still + w + 2.0 - 0.15)
+    check("a jump counts as moving", "STOP" in g.shownText())
+    g.falling = False
+    g.tick(still + w + 2.0 - 0.1)
+    n = len(g.printed)
+    g.SlashCmdList.HUNTERSHOTTIMER("timing")
+    out = [g.printed[i] for i in range(n + 1, len(g.printed) + 1)]
+    check("timing: a gap where you moved is left out", any("you moved, left out" in l for l in out))
+    # Options open: the looping demo ignores your movement.
+    g.playerSpeed = 7
+    ns.SetUnlocked(True)
+    g.tick(7003.7 + 3.0 - (7003.7 % 3.0) + 2.8)
+    check("demo ignores movement", "STOP" not in g.shownText())
+    ns.SetUnlocked(False)
+    g.playerSpeed = None
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    g.fire("PLAYER_ENTERING_WORLD")
+    g.tick(7010)
 
     # Distance text never contradicts itself.
     def bracket(ans, state):

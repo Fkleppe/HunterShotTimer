@@ -45,6 +45,43 @@ end
 -- /hst timing leaves that gap out.
 ns.state = { lastShot = nil, speed = nil, shooting = false, gapBroken = false }
 
+-- Are you moving, and since when have you stood still? Read from the client every frame
+-- (GetUnitSpeed, IsFalling), so the bar knows instead of guessing. `known` stays false on a
+-- client that hides these: the bar then works from the swing time alone, as before.
+ns.move = { known = false, moving = false, stillSince = nil }
+
+function ns.OnMovement(now, moving)
+  local m = ns.move
+  m.known = true
+  if moving then
+    m.moving, m.stillSince = true, nil
+    -- /hst timing only trusts gaps where you stood still the whole time.
+    if ns.state.lastShot then ns.state.moved = true end
+  else
+    if m.moving or not m.stillSince then m.stillSince = now end
+    m.moving = false
+  end
+end
+
+local function plainNumber(v) return not issecret(v) and type(v) == "number" and v == v and v end
+
+-- Polled from the bar's OnUpdate; a secret or missing answer means "unknown".
+function ns.PollMovement(now)
+  local speed = GetUnitSpeed and plainNumber(GetUnitSpeed("player"))
+  if not speed then ns.move.known = false return end
+  local falling = IsFalling and IsFalling()
+  ns.OnMovement(now, speed > 0 or (not issecret(falling) and falling == true))
+end
+
+-- Seconds until the shot fires if you stay still: when the swing ends, but never sooner
+-- than a full stand-still window after you stopped. nil while you move, or when
+-- movement is not known.
+function ns.ShotIn(now, lastShot, speed)
+  local m = ns.move
+  if not m.known or m.moving or not m.stillSince then return nil end
+  return math.max(0, math.max(lastShot + speed, m.stillSince + ns.Window()) - now)
+end
+
 -- The last few gaps between Auto Shots, next to the speed the game reported, for
 -- /hst timing: since the 16 October beta build Auto Shot needs 0.5 s of standing still,
 -- and these show whether that half second sits inside the swing (gap = speed) or comes
@@ -57,10 +94,10 @@ function ns.OnShot(now, duration)
   if issecret(duration) or type(duration) ~= "number" or duration ~= duration or duration <= 0 or duration > 10 then return end
   local s = ns.state
   if s.lastShot and s.speed and not s.gapBroken then
-    table.insert(ns.gaps, { gap = now - s.lastShot, speed = s.speed })
+    table.insert(ns.gaps, { gap = now - s.lastShot, speed = s.speed, moved = s.moved })
     if #ns.gaps > MAX_GAPS then table.remove(ns.gaps, 1) end
   end
-  s.lastShot, s.speed, s.gapBroken = now, duration, false
+  s.lastShot, s.speed, s.gapBroken, s.moved = now, duration, false, false
 end
 
 -- Gaps longer than this past the speed were held up (moving, out of range): left out.
@@ -72,9 +109,9 @@ function ns.TimingReport()
   for i, g in ipairs(ns.gaps) do
     local over = g.gap - g.speed
     local held = over > ns.HELD_UP
-    lines[#lines + 1] = string.format("%d. %.2f s apart, speed %.2f s (%+.2f s)%s", i, g.gap, g.speed, over,
-      held and " - held up, left out" or "")
-    if not held then extra, n = extra + over, n + 1 end
+    local note = g.moved and " - you moved, left out" or held and " - held up, left out" or ""
+    lines[#lines + 1] = string.format("%d. %.2f s apart, speed %.2f s (%+.2f s)%s", i, g.gap, g.speed, over, note)
+    if not held and not g.moved then extra, n = extra + over, n + 1 end
   end
   if n < 3 then
     lines[#lines + 1] = "Not enough shots yet: stand still and let Auto Shot fire 6 times, then type /hst timing."

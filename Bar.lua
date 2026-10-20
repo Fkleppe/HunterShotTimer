@@ -467,14 +467,32 @@ local function paint(now, value, left, label, colour, key, pulse)
   end
 end
 
--- Auto Shot: move, stand still, or late (held up by moving, casting or range).
-local function render(now, lastShot, speed)
+-- Auto Shot: move, stand still, or late (held up by moving or range).
+-- With movement known, the end of the swing follows what you actually do: moving where you
+-- must stand still says STOP, and standing still counts down to the real shot, which comes
+-- a full stand-still window after you stopped if you stopped late.
+local function render(now, lastShot, speed, demo)
   setSpeed(speed)
   local phase, value, left = ns.Phase(now, lastShot, speed)
   local late = phase == "late"
-  local label = phase == "move" and "MOVE" or (late and LATE_RANGE[rangeState]) or "STAND STILL"
+  local label, pulse = "STAND STILL", late
+  if phase == "move" then
+    label = "MOVE"
+  elseif late and LATE_RANGE[rangeState] then
+    label, left = LATE_RANGE[rangeState], nil
+  elseif ns.move.known and not demo then
+    if ns.move.moving then
+      label, left, pulse = "STOP", nil, true
+    else
+      left = ns.ShotIn(now, lastShot, speed)
+      pulse = not left or left <= 0
+      if pulse then left = nil end
+    end
+  elseif late then
+    left = nil
+  end
   local colour = phase == "move" and ns.db.colors.move or ns.db.colors.stand
-  paint(now, value, not late and left or nil, label, colour, label, late)
+  paint(now, value, left, label, colour, label, pulse)
   return phase
 end
 
@@ -598,7 +616,7 @@ frame:SetScript("OnUpdate", function(_, dt)
     rangeState = nil
     switchTo("shot")
     advanceBlend(dt)
-    render(now, now - now % DEMO_SPEED, DEMO_SPEED)
+    render(now, now - now % DEMO_SPEED, DEMO_SPEED, true)
     setInfo(DEMO_SPEED, DEMO_SHOTS)
     setAmmo(DEMO_AMMO[db.ammoDisplay], ns.ammo.icon or DEMO_AMMO_ICON)
     fitInfo(db.rangeEnabled)
@@ -611,6 +629,7 @@ frame:SetScript("OnUpdate", function(_, dt)
   local s = ns.state
   local active = false
   local melee = ns.isHunter and db.showMelee
+  if ns.isHunter then ns.PollMovement(now) end
   holdClose(dt)
   local meleeOn = melee and ns.MeleeActive(now, closeHeld and "close" or nil)
   if meleeOn then

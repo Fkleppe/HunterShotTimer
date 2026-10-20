@@ -75,8 +75,15 @@ The bar is one swing long:
 | **Green, "MOVE"** | Free to move. The countdown on the right shows how long you have left. |
 | **Red window at the end** | Stand still here. It is the engine's half second, plus your ping (your "I stopped" has to reach the server). |
 | **Red, "STAND STILL"** | The shot is coming: do not move. The countdown shows how long until it fires. |
+| **Red, "STOP"** | You are moving where you must stand still. The shot waits until you stop. |
 | **Spark** | Where you are in the swing. It pulses while a shot is overdue. |
 | **Flash** | A short flash across the bar when the shot fires. |
+
+**It sees when you stand still.** The bar reads from the game whether you are moving (a jump
+counts too), so you never have to guess. Moving in the red window says **STOP**. Once you
+stand still, the countdown is the real time to the shot: the end of the swing, or a full
+half second (plus ping) after you stopped if you stopped late. Without that, the shot would
+seem to come "late" for no reason.
 
 When a swing is over but no shot has gone off, the bar stays full and tells you why:
 
@@ -84,7 +91,8 @@ When a swing is over but no shot has gone off, the bar stays full and tells you 
 
 - **TOO CLOSE**: the target is inside the minimum range (the dead zone, under 8 yd). Step back.
 - **OUT OF RANGE**: the target is too far away for Auto Shot. Get closer.
-- **STAND STILL** (while late): you moved, or Aimed Shot is casting. Stand still and it fires.
+- **STOP** / **STAND STILL** (while late): you moved. Stand still, and the countdown shows when
+  it fires.
 
 **Your real speed, haste included.** The bar is driven by the game's own swing event, which
 reports the actual time to the next shot. Quiver or ammo pouch haste, Rapid Fire, Quick
