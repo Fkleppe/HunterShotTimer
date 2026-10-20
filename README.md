@@ -76,7 +76,7 @@ The bar is one swing long:
 | **Red window at the end** | Stand still here. It is the engine's half second, plus your ping (your "I stopped" has to reach the server). |
 | **Red, "STAND STILL"** | The shot is coming: do not move. The countdown shows how long until it fires. |
 | **Red, "STOP"** | You are moving where you must stand still. The shot waits until you stop. |
-| **Slim bar underneath** | The stand-still bar: it fills over exactly the time you must stand still and is full as the arrow or bullet leaves. |
+| **Slim bar underneath** | Green: you may move; it shrinks as that time runs out. Red: stand still; it fills over exactly that time and is full as the arrow or bullet leaves. Then it turns green again: go. |
 | **Spark** | Where you are in the swing. It pulses while a shot is overdue. |
 | **Flash** | A short flash across the bar when the shot fires. |
 
@@ -86,9 +86,10 @@ stand still, the countdown is the real time to the shot: the end of the swing, o
 half second (plus ping) after you stopped if you stopped late. Without that, the shot would
 seem to come "late" for no reason.
 
-**The stand-still bar shows exactly how long to stand still.** It starts the moment you
-have to stand still, or the moment you stop if you stop late, and it is full as the shot
-goes. While you stand, the countdown runs in hundredths (`0.29`). If you move, it empties
+**The stand-still bar shows exactly how long to stand still.** Right after a shot it is full
+and green: move. It shrinks as your time to move runs out, then turns red and fills from the
+moment you have to stand still (or the moment you stop, if you stop late). It is full as the
+shot goes, and turns green again: go. While you stand, the countdown runs in hundredths (`0.29`). If you move, it empties
 and says STOP. The time is not a guess: the addon measures it on your own shots (from the
 moment you stopped to the moment the arrow left), so your ping and the server's timing are
 in it. Until it has three such shots it uses the half second plus your ping. `/hst timing`

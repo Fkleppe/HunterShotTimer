@@ -84,8 +84,9 @@ for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", -1, 1, 1, 1, true }, { "BOTTOMLEFT
   borderEdges[#borderEdges + 1] = t
 end
 
--- Stand-still bar: a slim second bar under the main one. It fills over exactly the time
--- you must stand still and is full as the shot goes.
+-- Stand-still bar: a slim second bar under the main one. Green while you may move, full
+-- right after a shot and shrinking as the time to move runs out; red while you must stand
+-- still, filling over exactly that time and full as the shot goes. Then green again: go.
 local standBar = CreateFrame("StatusBar", nil, timer)
 standBar:SetMinMaxValues(0, 1)
 standBar:SetValue(0)
@@ -96,7 +97,8 @@ standBorder:SetColorTexture(0, 0, 0, 1)
 standBorder:SetPoint("TOPLEFT", -1, 1)
 standBorder:SetPoint("BOTTOMRIGHT", 1, -1)
 ns.standBar = standBar
-local standShown = -1
+local standShown, standColour = -1, nil
+function ns.StandState() return standColour, standShown end
 
 local status = text(timer, "LEFT")
 local countdown = text(timer, "RIGHT")
@@ -205,8 +207,6 @@ function ns.ApplyLayout()
 
   standBar:SetShown(standOn)
   standBar:SetStatusBarTexture(db.texture)
-  standBar:SetStatusBarColor(unpack(db.colors.stand))
-  standBar:GetStatusBarTexture():SetVertexColor(unpack(db.colors.stand))
   standBar:SetOrientation(vertical and "VERTICAL" or "HORIZONTAL")
   standTrack:SetColorTexture(unpack(db.colors.track))
   standBorder:SetShown(db.showBorder)
@@ -334,7 +334,9 @@ function ns.ApplyLayout()
   -- Force colours, sizes and text to refresh on the next frame (a switch in progress just lands).
   lastLabel, shownSpeed, shownWindow, shownInfo, shownAmmo, shownZone = nil, nil, nil, nil, nil, nil
   shown = {}
-  standShown = -1
+  standShown, standColour = -1, nil
+  standBlink = false
+  standBar:SetAlpha(1)
   rangeReserve = 0
   blend = 1
   setTextAlpha(1)
@@ -503,10 +505,26 @@ end
 -- With movement known, the end of the swing follows what you actually do: moving where you
 -- must stand still says STOP, and standing still counts down to the real shot, which comes
 -- a full stand-still window after you stopped if you stopped late.
-local function setStand(v)
+-- `key`: "move" (green) or "stand" (red), from the colour settings. `waiting`: full, but
+-- the shot has not gone yet: it blinks, so a full red bar never reads as "done, go".
+local standBlink = false
+local function setStand(v, key, waiting, now)
   if v ~= standShown then
     standShown = v
     standBar:SetValue(v)
+  end
+  if waiting then
+    standBar:SetAlpha(0.35 + 0.65 * (0.5 + 0.5 * math.cos(now * 10)))
+    standBlink = true
+  elseif standBlink then
+    standBlink = false
+    standBar:SetAlpha(1)
+  end
+  if key ~= standColour then
+    standColour = key
+    local c = ns.db.colors[key]
+    standBar:SetStatusBarColor(c[1], c[2], c[3], c[4] or 1)
+    standBar:GetStatusBarTexture():SetVertexColor(c[1], c[2], c[3], c[4] or 1)
   end
 end
 
@@ -516,13 +534,19 @@ local function render(now, lastShot, speed, demo)
   local phase, value, left = ns.Phase(now, lastShot, speed)
   local late = phase == "late"
   local label, pulse, fine = "STAND STILL", late, false
-  -- Stand-still bar: from what you do when movement is known, else from the swing time.
-  if ns.move.known and not demo then
-    setStand(ns.StandProgress(now, lastShot, speed))
+  -- Stand-still bar. Free to move: green, shrinking to the moment you must stop. Then red,
+  -- from what you do when movement is known, else from the swing time.
+  local need = math.min(demo and ns.Window() or ns.StandNeed(), cycle)
+  if phase == "move" then
+    local moveFor = cycle - need
+    setStand(moveFor > 0 and math.max(0, math.min(1, left / moveFor)) or 0, "move")
+  elseif ns.move.known and not demo then
+    local v = ns.StandProgress(now, lastShot, speed)
+    setStand(v, "stand", v >= 1, now)
   else
-    local need = math.min(demo and ns.Window() or ns.StandNeed(), cycle)
     local into = (now - lastShot) - (cycle - need)
-    setStand(math.max(0, math.min(1, into / need)))
+    local v = math.max(0, math.min(1, into / need))
+    setStand(v, "stand", late, now)
   end
   if phase == "move" then
     label = "MOVE"
@@ -550,14 +574,14 @@ local function renderMelee(now)
   local m = ns.melee
   setSpeed(m.speed or 1, 0)
   local value, left = ns.MeleePhase(now)
-  setStand(0)
+  setStand(0, "stand")
   paint(now, value, left, "MELEE", ns.db.colors.melee, "melee", false)
 end
 
 -- In melee range without swinging: Auto Shot cannot fire, so say so and keep the bar up.
 local function renderClose(now)
   setSpeed(ns.state.speed or 1)
-  setStand(0)
+  setStand(0, "stand")
   paint(now, 0, nil, "TOO CLOSE", ns.db.colors.stand, "close", false)
 end
 

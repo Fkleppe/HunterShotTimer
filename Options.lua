@@ -334,7 +334,7 @@ local function build()
   checkbox(win, "Melee & too close", RIGHT, y, "showMelee",
     "In melee range the bar stays up: while you swing it times your melee swings (MELEE, handy for Raptor Strike); otherwise it tells you to back off (TOO CLOSE).")
   checkbox(win, "Stand-still bar", RIGHT + COL / 2, y, "showStandBar",
-    "A slim second bar under the main one. It fills from the moment you must stand still (or the moment you stop, if you stop late) and is full as the arrow or bullet leaves. The time is measured on your own shots; /hst timing shows it.")
+    "A slim second bar under the main one. Green: you may move (it shrinks as that time runs out). Red: stand still; it fills from the moment you must stand (or the moment you stop, if you stop late) and is full as the arrow or bullet leaves. Then it turns green: go. The time is measured on your own shots; /hst timing shows it. Colours follow Move and Stand still.")
   y = y - 30
   choice(win, "Ammo left", RIGHT, y, "ammoDisplay", ns.AMMO_MODES)
 

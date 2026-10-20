@@ -1014,6 +1014,40 @@ def main():
     g.fire("PLAYER_ENTERING_WORLD")
     g.tick(7010)
 
+    # --- Half a second on top of the swing: learned from three shots ------------------
+    g.fire("PLAYER_ENTERING_WORLD")
+    lua.eval("function(c) c.stand, c.early = {}, {} end")(ns.calib)
+    g.fire("START_AUTOREPEAT_SPELL")
+    g.playerSpeed = 0
+    g.setClock(7500.0)
+    g.tick(7500.05)
+    g.fire("PLAYER_SWING", 2.0, 2)
+    last = g.GetTime()
+    g.tick(last + 2.1)  # swing over, standing still, no shot yet
+    col, val = ns.StandState()
+    check("before learning: overdue shot blinks the stand-still bar", col == "stand" and val == 1
+          and ns.standBar.alpha < 1)
+    for i in range(3):
+        g.tick(last + 2.45)
+        g.setClock(last + 2.5)
+        g.fire("PLAYER_SWING", 2.0, 2)
+        last = g.GetTime()
+    check("learned: shots come 0.5 s after the swing", abs(ns.EarlyDelay() - 0.5) < 1e-6)
+    g.tick(last + 2.1)
+    col, val = ns.StandState()
+    check("after learning: at the old swing end the bar is not full yet", col == "stand" and val < 1
+          and ns.standBar.alpha == 1 and "STAND STILL" in g.shownText() and ns.ui.countdown.text == "0.40")
+    g.tick(last + 2.49)
+    check("after learning: full right as the shot goes", ns.StandState()[1] > 0.97)
+    g.setClock(last + 2.5)
+    g.fire("PLAYER_SWING", 2.0, 2)
+    g.tick(last + 2.52)
+    col, val = ns.StandState()
+    check("shot gone: green, go", col == "move" and val > 0.97 and ns.standBar.alpha == 1)
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    g.playerSpeed = None
+    lua.eval("function(c) c.stand, c.early = {}, {} end")(ns.calib)
+
     # --- The stand-still bar learns your real stand-still time ------------------------
     g.fire("PLAYER_ENTERING_WORLD")
     lua.eval("function(c) c.stand, c.early = {}, {} end")(ns.calib)
@@ -1042,8 +1076,17 @@ def main():
         g.fire("PLAYER_SWING", 2.0, 2)
         last = g.GetTime()
     check("learned: delay after the swing when standing still", abs(ns.EarlyDelay() - 0.03) < 1e-6)
+    # Right after the shot: green and full, you may move; it shrinks toward the stop.
+    g.tick(last + 0.01)
+    col, val = ns.StandState()
+    check("after the shot: stand-still bar green and full", col == "move" and val > 0.98)
+    g.tick(last + (2.03 - 0.62) / 2)
+    col, val = ns.StandState()
+    check("free to move: green, half gone halfway", col == "move" and abs(val - 0.5) < 0.03)
     # The bar now follows the measured numbers.
     g.tick(last + 2.03 - 0.62 + 0.31)  # halfway through the stand-still time
+    col, _ = ns.StandState()
+    check("stand still: the bar turns red", col == "stand")
     check("stand-still bar: half full halfway", abs(ns.standBar.value - 0.5) < 0.03)
     check("countdown exact to the hundredth while standing", ns.ui.countdown.text == "0.31")
     g.playerSpeed = 7

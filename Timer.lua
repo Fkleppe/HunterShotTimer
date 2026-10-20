@@ -98,7 +98,7 @@ local function learn(now, s)
   if m.stillSince >= swingEnd then
     local v = now - m.stillSince
     if v >= 0.15 and v <= 1.2 then addSample(ns.calib.stand, v) end
-  elseif m.stillSince <= swingEnd - 1.0 then
+  elseif m.stillSince <= swingEnd - 0.8 then -- stood still through the whole window
     local v = now - swingEnd
     if v >= -0.1 and v <= 0.8 then addSample(ns.calib.early, v) end
   end

@@ -37,26 +37,30 @@ STAND_H = max(3, int(THICK * 0.4 + 0.5))  # the stand-still bar under the main o
 STAND_EXTRA = STAND_H + 3
 
 
-def stand_bar(img, x, y, length, value, vertical=False):
-    """The slim stand-still bar: track, 1 px border, fill in the stand colour."""
+def stand_bar(img, x, y, length, value, vertical=False, colour=None):
+    """The slim stand-still bar: track, 1 px border, fill (green: move, red: stand)."""
     d = ImageDraw.Draw(img)
+    colour = colour or STAND
     if vertical:
         rect(d, x - 1, y - 1, x + STAND_H + 1, y + length + 1, (0, 0, 0, 255))
         rect(d, x, y, x + STAND_H, y + length, rgb(TRACK))
         if value > 0:
-            rect(d, x, y + length * (1 - value), x + STAND_H, y + length, rgb(STAND))
+            rect(d, x, y + length * (1 - value), x + STAND_H, y + length, rgb(colour))
     else:
         rect(d, x - 1, y - 1, x + length + 1, y + STAND_H + 1, (0, 0, 0, 255))
         rect(d, x, y, x + length, y + STAND_H, rgb(TRACK))
         if value > 0:
-            rect(d, x, y, x + length * value, y + STAND_H, rgb(STAND))
+            rect(d, x, y, x + length * value, y + STAND_H, rgb(colour))
 
 
 def stand_value(value, speed, window):
-    """How full the stand-still bar is at this point of the swing (standing still)."""
+    """The stand-still bar at this point of the swing (standing still): (fill, colour)."""
     if window <= 0:
-        return 0
-    return max(0.0, min(1.0, (value * speed - (speed - window)) / window))
+        return 0, STAND
+    move_for = speed - window
+    if value * speed < move_for:
+        return max(0.0, 1 - value * speed / move_for), MOVE
+    return max(0.0, min(1.0, (value * speed - move_for) / window)), STAND
 
 
 def rgb(c, a=255):
@@ -191,7 +195,8 @@ def standard(img, ox, oy, status, scolour, countdown, value, pct, state, distanc
         text(d, ox + WIDTH, base, countdown, FONT_SIZE, rgb(TEXT), anchor="rs", path=FONT_BOLD, alpha=text_alpha)
     ammo(d, ox + WIDTH - count_slot - ammo_w, base, pct)
     bar(img, ox, oy + top, WIDTH, THICK, value, scolour, speed=speed, window=window)
-    stand_bar(img, ox, oy + top + THICK + 3, WIDTH, stand_value(value, speed, window) if stand is None else stand)
+    sv, sc = stand_value(value, speed, window) if stand is None else (stand, STAND)
+    stand_bar(img, ox, oy + top + THICK + 3, WIDTH, sv, colour=sc)
     below = oy + top + THICK + STAND_EXTRA + GAP + SMALL
     text(d, ox, below, info, SMALL, rgb(MUTED), anchor="ls", alpha=text_alpha)
     range_text(d, ox + WIDTH, below, state, distance)
@@ -257,7 +262,8 @@ def render_layouts():
     text(d, left - 6, by + THICK / 2, "STAND STILL", FONT_SIZE, rgb(STAND), anchor="rm", path=FONT_BOLD)
     bar(img, left, by, WIDTH, THICK, 0.86, STAND)
     text(d, left + WIDTH + 6, by + THICK / 2, "0.29", FONT_SIZE, rgb(TEXT), anchor="lm", path=FONT_BOLD)
-    stand_bar(img, left, by + THICK + 3, WIDTH, stand_value(0.86, 2.09, WINDOW))
+    sv, sc = stand_value(0.86, 2.09, WINDOW)
+    stand_bar(img, left, by + THICK + 3, WIDTH, sv, colour=sc)
     ax = left + WIDTH + 6 + count_w + 6
     arrow_icon(d, ax, by + THICK / 2 - SMALL / 2, SMALL)
     text(d, ax + SMALL + 3, by + THICK / 2, "62%", SMALL, hexrgb("a6d96a"), anchor="lm")
@@ -269,7 +275,8 @@ def render_layouts():
     vx, vy = 420, 28
     length = 210
     bar(img, vx, vy, length, THICK, 0.45, MOVE, vertical=True)
-    stand_bar(img, vx + THICK + 3, vy, length, 0, vertical=True)
+    sv, sc = stand_value(0.45, 2.09, WINDOW)
+    stand_bar(img, vx + THICK + 3, vy, length, sv, vertical=True, colour=sc)
     tx = vx + THICK + 6 + STAND_EXTRA
     text(d, tx, vy + FONT_SIZE, "MOVE", FONT_SIZE, rgb(MOVE), anchor="ls", path=FONT_BOLD)
     text(d, tx, vy + 2 * FONT_SIZE + 3, "0.6", FONT_SIZE, rgb(TEXT), anchor="ls", path=FONT_BOLD)
