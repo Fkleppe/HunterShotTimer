@@ -800,6 +800,8 @@ SlashCmdList.HUNTERSHOTTIMER = function(msg)
     ns.Say("Position reset.")
   elseif msg == "range" then
     report("Range check:", ns.RangeReport())
+  elseif msg == "moving" then
+    report("Movement (run it standing, then while running):", ns.MovementReport())
   elseif msg == "timing" then
     report("Auto Shot timing (stand still and shoot first):", ns.TimingReport())
   elseif msg == "probe" then
@@ -818,7 +820,8 @@ events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("START_AUTOREPEAT_SPELL")
 events:RegisterEvent("STOP_AUTOREPEAT_SPELL")
 pcall(events.RegisterEvent, events, "PLAYER_SWING")
-for _, e in ipairs({ "PLAYER_ENTER_COMBAT", "PLAYER_LEAVE_COMBAT", "PLAYER_REGEN_ENABLED" }) do pcall(events.RegisterEvent, events, e) end
+for _, e in ipairs({ "PLAYER_ENTER_COMBAT", "PLAYER_LEAVE_COMBAT", "PLAYER_REGEN_ENABLED",
+                    "PLAYER_STARTED_MOVING", "PLAYER_STOPPED_MOVING" }) do pcall(events.RegisterEvent, events, e) end
 events:RegisterEvent("BAG_UPDATE_DELAYED")
 events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 events:SetScript("OnEvent", function(_, event, a, b)
@@ -831,6 +834,8 @@ events:SetScript("OnEvent", function(_, event, a, b)
       ns.OnMeleeSwing(GetTime(), a)
       if ns.db and ns.db.showFlash and ns.db.showMelee then flashAlpha = 0.25 end
     end
+  elseif event == "PLAYER_STARTED_MOVING" or event == "PLAYER_STOPPED_MOVING" then
+    if ns.isHunter then ns.OnMoveEvent(GetTime(), event == "PLAYER_STARTED_MOVING") end
   elseif event == "PLAYER_ENTER_COMBAT" then
     ns.melee.attacking = ns.isHunter -- melee auto-attack switched on
   elseif event == "PLAYER_LEAVE_COMBAT" or event == "PLAYER_REGEN_ENABLED" then
@@ -849,6 +854,8 @@ events:SetScript("OnEvent", function(_, event, a, b)
     ns.state.lastShot, ns.state.shooting = nil, false
     ns.gaps = {}
     ns.melee.lastSwing, ns.melee.speed, ns.melee.attacking = nil, nil, false
+    -- A loading screen can swallow a "stopped moving" event: start from standing still.
+    ns.move.moving, ns.move.stillSince = false, GetTime()
     ns.UpdateShotDamage()
     ns.RefreshAmmo()
     if ns.AttachVendorMap then ns.AttachVendorMap() end

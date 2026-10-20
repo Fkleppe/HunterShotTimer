@@ -1014,6 +1014,32 @@ def main():
     g.fire("PLAYER_ENTERING_WORLD")
     g.tick(7010)
 
+    # --- In combat Forever turns GetUnitSpeed secret: the movement events carry on ----------
+    g.fire("PLAYER_ENTERING_WORLD")
+    g.fire("START_AUTOREPEAT_SPELL")
+    g.playerSpeed = "SECRET"
+    g.setClock(7300.0)
+    g.fire("PLAYER_SWING", 2.0, 2)
+    g.tick(7300.1)
+    check("speed secret, no events yet: movement unknown, bar by swing time", not ns.move.known)
+    g.fire("PLAYER_STARTED_MOVING")
+    g.tick(7300.3)
+    col, _ = ns.StandState()
+    check("events: moving after the shot goes grey even with the speed secret", ns.move.known and col == "idle")
+    g.tick(7301.6)
+    check("events: moving in the stand-still part says STOP", "STOP" in g.shownText())
+    g.fire("PLAYER_STOPPED_MOVING")
+    g.tick(7301.7)
+    check("events: stopped, counting down to the real shot", "STAND STILL" in g.shownText() and ns.ui.countdown.text != "")
+    n = len(g.printed)
+    g.SlashCmdList.HUNTERSHOTTIMER("moving")
+    out = " ".join(str(g.printed[i]) for i in range(n + 1, len(g.printed) + 1))
+    check("/hst moving: secret speed, events in use", "GetUnitSpeed = secret" in out and "using = events" in out
+          and "standing still" in out)
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    g.playerSpeed = None
+    ns.move.events, ns.move.eventCount, ns.move.source, ns.move.known = False, 0, None, False
+
     # --- Half a second on top of the swing: learned from three shots ------------------
     g.fire("PLAYER_ENTERING_WORLD")
     lua.eval("function(c) c.stand, c.early = {}, {} end")(ns.calib)

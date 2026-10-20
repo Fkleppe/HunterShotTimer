@@ -101,7 +101,7 @@ local function logShot(now, s, duration)
     t = r3(now),
     speed = r3(duration),
     ping = math.floor(ns.latency * 1000 + 0.5),
-    known = m.known and 1 or 0,
+    known = m.known and (m.source == "events" and 2 or 1) or 0, -- 2: from the movement events
   }
   if s.lastShot and s.speed then
     row.gap = r3(now - s.lastShot)
@@ -138,10 +138,21 @@ end
 -- /hst timing leaves that gap out.
 ns.state = { lastShot = nil, speed = nil, shooting = false, gapBroken = false }
 
--- Are you moving, and since when have you stood still? Read from the client every frame
--- (GetUnitSpeed, IsFalling), so the bar knows instead of guessing. `known` stays false on a
--- client that hides these: the bar then works from the swing time alone, as before.
-ns.move = { known = false, moving = false, stillSince = nil }
+-- Are you moving, and since when have you stood still? Two sources:
+--   the game's PLAYER_STARTED_MOVING / PLAYER_STOPPED_MOVING events: plain signals, so
+--     they work in combat too (Forever turns GetUnitSpeed secret in combat);
+--   GetUnitSpeed / IsFalling every frame while they are plain (out of combat, and jumps).
+-- `known` is false until one of them works: the bar then uses the swing time alone.
+-- `source`: "events", "speed" or nil, for /hst moving and the shot log.
+ns.move = { known = false, moving = false, stillSince = nil, events = false, source = nil, eventCount = 0 }
+
+-- From the movement events. Once they have been seen, they are trusted in combat.
+function ns.OnMoveEvent(now, moving)
+  local m = ns.move
+  m.events, m.eventCount = true, m.eventCount + 1
+  m.source = "events"
+  ns.OnMovement(now, moving)
+end
 
 function ns.OnMovement(now, moving)
   local m = ns.move
@@ -160,10 +171,36 @@ local function plainNumber(v) return not issecret(v) and type(v) == "number" and
 
 -- Polled from the bar's OnUpdate; a secret or missing answer means "unknown".
 function ns.PollMovement(now)
+  local m = ns.move
   local speed = GetUnitSpeed and plainNumber(GetUnitSpeed("player"))
-  if not speed then ns.move.known = false return end
+  if not speed then
+    -- Secret (in combat) or missing: the events carry on if they work, else unknown.
+    m.known = m.events
+    if not m.events then m.source = nil end
+    return
+  end
   local falling = IsFalling and IsFalling()
+  if not m.events then m.source = "speed" end
   ns.OnMovement(now, speed > 0 or (not issecret(falling) and falling == true))
+end
+
+-- /hst moving: what each movement source answers right now.
+function ns.MovementReport()
+  local m = ns.move
+  local function show(fn)
+    if not fn then return "missing" end
+    local ok, v = pcall(fn, "player")
+    if not ok then return "error" end
+    if issecret(v) then return "secret" end
+    return tostring(v)
+  end
+  return {
+    "GetUnitSpeed = " .. show(GetUnitSpeed),
+    "IsFalling = " .. show(IsFalling),
+    "movement events seen = " .. m.eventCount,
+    "using = " .. (m.source or "nothing (the bar goes by the swing time alone)"),
+    "you are " .. (not m.known and "unknown" or m.moving and "moving" or "standing still"),
+  }
 end
 
 -- When the shot fires if you stay still: when the swing ends, but never sooner than the

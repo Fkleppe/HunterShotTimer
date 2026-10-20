@@ -218,6 +218,7 @@ restores every default but keeps the bar where it is.
 | `/hst reset` | Move the bar back to its default place |
 | `/hst range` | Print what the range check reads, for a target in front of you |
 | `/hst probe` | Print what the shots-to-kill estimate can read (run it mid-fight) |
+| `/hst moving` | Print whether the bar can see you move (run it standing, then while running) |
 | `/hst timing` | After 6 Auto Shots standing still: how far apart they came, next to your speed |
 
 `/hst timing` checks the 0.5 s stand-still that the 16 Oct beta build gave Auto Shot. If the
