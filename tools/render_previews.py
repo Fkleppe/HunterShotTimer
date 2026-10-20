@@ -59,7 +59,7 @@ def stand_value(value, speed, window):
         return 0, STAND
     move_for = speed - window
     if value * speed < move_for:
-        return max(0.0, 1 - value * speed / move_for), MOVE
+        return 1.0, MOVE
     return max(0.0, min(1.0, (value * speed - move_for) / window)), STAND
 
 

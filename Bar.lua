@@ -84,9 +84,9 @@ for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", -1, 1, 1, 1, true }, { "BOTTOMLEFT
   borderEdges[#borderEdges + 1] = t
 end
 
--- Stand-still bar: a slim second bar under the main one. Green while you may move, full
--- right after a shot and shrinking as the time to move runs out; red while you must stand
--- still, filling over exactly that time and full as the shot goes. Then green again: go.
+-- Stand-still bar: a slim second bar under the main one. Red while you must stand still,
+-- filling over exactly that time; the moment the shot is away it turns solid green (go)
+-- and stays green while you may move.
 local standBar = CreateFrame("StatusBar", nil, timer)
 standBar:SetMinMaxValues(0, 1)
 standBar:SetValue(0)
@@ -534,12 +534,11 @@ local function render(now, lastShot, speed, demo)
   local phase, value, left = ns.Phase(now, lastShot, speed)
   local late = phase == "late"
   local label, pulse, fine = "STAND STILL", late, false
-  -- Stand-still bar. Free to move: green, shrinking to the moment you must stop. Then red,
-  -- from what you do when movement is known, else from the swing time.
+  -- Stand-still bar. Free to move: solid green. Then red, filling from what you do when
+  -- movement is known, else from the swing time.
   local need = math.min(demo and ns.Window() or ns.StandNeed(), cycle)
   if phase == "move" then
-    local moveFor = cycle - need
-    setStand(moveFor > 0 and math.max(0, math.min(1, left / moveFor)) or 0, "move")
+    setStand(1, "move")
   elseif ns.move.known and not demo then
     local v = ns.StandProgress(now, lastShot, speed)
     setStand(v, "stand", v >= 1, now)
