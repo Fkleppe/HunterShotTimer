@@ -33,6 +33,30 @@ FACTION = {"A": ("Alliance", (0.27, 0.55, 1)), "H": ("Horde", (0.92, 0.22, 0.2))
 BG = (24, 28, 24)
 WIDTH, THICK, FONT_SIZE, SMALL, GAP = 220, 10, 12, 10, 4
 WINDOW = 0.55  # 0.5 s stand-still + 50 ms ping
+STAND_H = max(3, int(THICK * 0.4 + 0.5))  # the stand-still bar under the main one (Bar.lua)
+STAND_EXTRA = STAND_H + 3
+
+
+def stand_bar(img, x, y, length, value, vertical=False):
+    """The slim stand-still bar: track, 1 px border, fill in the stand colour."""
+    d = ImageDraw.Draw(img)
+    if vertical:
+        rect(d, x - 1, y - 1, x + STAND_H + 1, y + length + 1, (0, 0, 0, 255))
+        rect(d, x, y, x + STAND_H, y + length, rgb(TRACK))
+        if value > 0:
+            rect(d, x, y + length * (1 - value), x + STAND_H, y + length, rgb(STAND))
+    else:
+        rect(d, x - 1, y - 1, x + length + 1, y + STAND_H + 1, (0, 0, 0, 255))
+        rect(d, x, y, x + length, y + STAND_H, rgb(TRACK))
+        if value > 0:
+            rect(d, x, y, x + length * value, y + STAND_H, rgb(STAND))
+
+
+def stand_value(value, speed, window):
+    """How full the stand-still bar is at this point of the swing (standing still)."""
+    if window <= 0:
+        return 0
+    return max(0.0, min(1.0, (value * speed - (speed - window)) / window))
 
 
 def rgb(c, a=255):
@@ -155,7 +179,7 @@ def range_text(d, right_x, y, state, distance, align="right"):
     text(d, x0, y, s, SMALL, rgb(c), anchor="ls")
 
 
-def standard(img, ox, oy, status, scolour, countdown, value, pct, state, distance, info="2.09s   ~4 shots", window=WINDOW, speed=2.09, text_alpha=1.0):
+def standard(img, ox, oy, status, scolour, countdown, value, pct, state, distance, info="2.09s   ~4 shots", window=WINDOW, speed=2.09, text_alpha=1.0, stand=None):
     d = ImageDraw.Draw(img)
     top = max(FONT_SIZE, SMALL) + GAP
     base = oy + top - GAP
@@ -167,7 +191,8 @@ def standard(img, ox, oy, status, scolour, countdown, value, pct, state, distanc
         text(d, ox + WIDTH, base, countdown, FONT_SIZE, rgb(TEXT), anchor="rs", path=FONT_BOLD, alpha=text_alpha)
     ammo(d, ox + WIDTH - count_slot - ammo_w, base, pct)
     bar(img, ox, oy + top, WIDTH, THICK, value, scolour, speed=speed, window=window)
-    below = oy + top + THICK + GAP + SMALL
+    stand_bar(img, ox, oy + top + THICK + 3, WIDTH, stand_value(value, speed, window) if stand is None else stand)
+    below = oy + top + THICK + STAND_EXTRA + GAP + SMALL
     text(d, ox, below, info, SMALL, rgb(MUTED), anchor="ls", alpha=text_alpha)
     range_text(d, ox + WIDTH, below, state, distance)
 
@@ -186,16 +211,16 @@ def caption(img, x, y, s):
 
 
 def render_phases():
-    img = canvas(520, 76)
+    img = canvas(520, 82)
     x, y = 24, 22
     standard(img, x, y, "MOVE", MOVE, "0.9", 0.29, 62, "in", "25-30 yd")
     caption(img, x, 14, "1  Free to move")
     x = 272
-    standard(img, x, y, "STAND STILL", STAND, "0.3", 0.86, 62, "in", "25-30 yd")
+    standard(img, x, y, "STAND STILL", STAND, "0.29", 0.86, 62, "in", "25-30 yd")
     caption(img, x, 14, "2  Stand still, the shot is coming")
     img.save(OUT / "bar-phases.png")
 
-    img = canvas(520, 76)
+    img = canvas(520, 82)
     x = 24
     standard(img, x, y, "TOO CLOSE", STAND, "", 1.0, 18, "close", "5-8 yd", info="2.09s")
     caption(img, x, 14, "Shot held up: inside the dead zone")
@@ -206,36 +231,37 @@ def render_phases():
 
 
 def render_melee():
-    img = canvas(520, 76)
+    img = canvas(520, 82)
     x, y = 24, 22
     standard(img, x, y, "MELEE", MELEE, "0.7", 0.61, 62, "close", "5-8 yd", info="1.80s melee", window=0, speed=1.8)
     caption(img, x, 14, "Swinging in melee: time to your next swing")
     x = 272
-    standard(img, x, y, "TOO CLOSE", STAND, "", 0.0, 62, "close", "5-8 yd", info="2.09s   ~4 shots")
+    standard(img, x, y, "TOO CLOSE", STAND, "", 0.0, 62, "close", "5-8 yd", info="2.09s   ~4 shots", stand=0)
     caption(img, x, 14, "In combat, too close, not swinging")
     img.save(OUT / "bar-melee.png")
 
 
 def render_layouts():
-    img = canvas(560, 260)
+    img = canvas(560, 272)
     d = ImageDraw.Draw(img)
     caption(img, 24, 20, "Horizontal, text above (default)")
     standard(img, 24, 28, "MOVE", MOVE, "0.9", 0.29, 62, "in", "25-30 yd")
 
-    caption(img, 24, 100, "Horizontal, one row")
+    caption(img, 24, 106, "Horizontal, one row")
     status_w = math.ceil(FONT_SIZE * 6)
     count_w = math.ceil(FONT_SIZE * 2.2)
     row_h = max(THICK, FONT_SIZE + 2)
-    oy = 108
+    oy = 114
     left = 24 + status_w + 6
     by = oy + (row_h - THICK) / 2
     text(d, left - 6, by + THICK / 2, "STAND STILL", FONT_SIZE, rgb(STAND), anchor="rm", path=FONT_BOLD)
     bar(img, left, by, WIDTH, THICK, 0.86, STAND)
-    text(d, left + WIDTH + 6, by + THICK / 2, "0.3", FONT_SIZE, rgb(TEXT), anchor="lm", path=FONT_BOLD)
+    text(d, left + WIDTH + 6, by + THICK / 2, "0.29", FONT_SIZE, rgb(TEXT), anchor="lm", path=FONT_BOLD)
+    stand_bar(img, left, by + THICK + 3, WIDTH, stand_value(0.86, 2.09, WINDOW))
     ax = left + WIDTH + 6 + count_w + 6
     arrow_icon(d, ax, by + THICK / 2 - SMALL / 2, SMALL)
     text(d, ax + SMALL + 3, by + THICK / 2, "62%", SMALL, hexrgb("a6d96a"), anchor="lm")
-    below = oy + row_h + GAP + SMALL
+    below = oy + row_h + STAND_EXTRA + GAP + SMALL
     text(d, left, below, "2.09s   ~4 shots", SMALL, rgb(MUTED), anchor="ls")
     range_text(d, left + WIDTH, below, "in", "25-30 yd")
 
@@ -243,7 +269,8 @@ def render_layouts():
     vx, vy = 420, 28
     length = 210
     bar(img, vx, vy, length, THICK, 0.45, MOVE, vertical=True)
-    tx = vx + THICK + 6
+    stand_bar(img, vx + THICK + 3, vy, length, 0, vertical=True)
+    tx = vx + THICK + 6 + STAND_EXTRA
     text(d, tx, vy + FONT_SIZE, "MOVE", FONT_SIZE, rgb(MOVE), anchor="ls", path=FONT_BOLD)
     text(d, tx, vy + 2 * FONT_SIZE + 3, "0.6", FONT_SIZE, rgb(TEXT), anchor="ls", path=FONT_BOLD)
     ammo(d, tx, vy + 2 * FONT_SIZE + 6 + SMALL, 62)
@@ -402,7 +429,7 @@ def render_settings():
     checkbox(RIGHT, y, "Weapon speed"); checkbox(RIGHT + COL / 2, y, "Shots to kill"); y -= 24
     checkbox(RIGHT, y, "Spark"); checkbox(RIGHT + COL / 2, y, "Flash on shot"); y -= 24
     checkbox(RIGHT, y, "Border"); checkbox(RIGHT + COL / 2, y, "Gradient fill"); y -= 24
-    checkbox(RIGHT, y, "Melee & too close"); y -= 30
+    checkbox(RIGHT, y, "Melee & too close"); checkbox(RIGHT + COL / 2, y, "Stand-still bar"); y -= 30
     choice(RIGHT, y, "Ammo left", "Percent (62%)"); y -= 52
     heading(RIGHT, y, "Range check"); y -= 22
     checkbox(RIGHT, y, "Enabled"); checkbox(RIGHT + COL / 2, y, "Show text"); y -= 24
@@ -434,7 +461,7 @@ def render_switch():
     ease to their new place, and the texts fade out and come back with the new words."""
     blend_time, speed = 0.2, 2.09
     frames = [0, 0.25, 0.5, 0.75, 1]
-    row = 52
+    row = 52 + STAND_EXTRA
     img = canvas(330, 14 + row * len(frames))
     d = ImageDraw.Draw(img)
     from_value = 0.61
@@ -465,6 +492,9 @@ def render_timing():
         (ROOT / "Timer.lua").read_text(encoding="utf-8"))("HunterShotTimer", ns)
     lua.execute("function fillGaps(ns, list) ns.gaps = {} for i, g in ipairs(list) do ns.gaps[i] = { gap = g, speed = 2.09 } end end")
     lua.globals().fillGaps(ns, lua.table(2.11, 2.08, 2.10, 2.12, 4.30, 2.09, 2.10))
+    lua.execute("function fillCalib(ns) ns.DEFAULTS = { windowExtra = 0, addPing = true } "
+                "ns.calib = { stand = { 0.61, 0.63, 0.62, 0.62 }, early = { 0.02, 0.01, 0.03 } } end")
+    lua.globals().fillCalib(ns)
     lines = list(ns.TimingReport().values())
 
     size, lh = 11, 15

@@ -84,6 +84,20 @@ for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", -1, 1, 1, 1, true }, { "BOTTOMLEFT
   borderEdges[#borderEdges + 1] = t
 end
 
+-- Stand-still bar: a slim second bar under the main one. It fills over exactly the time
+-- you must stand still and is full as the shot goes.
+local standBar = CreateFrame("StatusBar", nil, timer)
+standBar:SetMinMaxValues(0, 1)
+standBar:SetValue(0)
+local standTrack = standBar:CreateTexture(nil, "BACKGROUND")
+standTrack:SetAllPoints()
+local standBorder = standBar:CreateTexture(nil, "BACKGROUND", nil, -1)
+standBorder:SetColorTexture(0, 0, 0, 1)
+standBorder:SetPoint("TOPLEFT", -1, 1)
+standBorder:SetPoint("BOTTOMRIGHT", 1, -1)
+ns.standBar = standBar
+local standShown = -1
+
 local status = text(timer, "LEFT")
 local countdown = text(timer, "RIGHT")
 local info = text(timer, "LEFT") -- weapon speed and shots to kill
@@ -164,6 +178,9 @@ function ns.ApplyLayout()
   local ammoTextW = math.ceil(small * 3.0)    -- "100%" / "1200"
   local ammoW = small + 3 + ammoTextW
   local dotSize = math.max(4, math.floor(small * 0.5))
+  local standOn = db.showStandBar
+  local standH = math.max(3, math.floor(thick * 0.4 + 0.5))
+  local standExtra = standOn and (standH + 3) or 0 -- room the stand-still bar takes (1 px clear of the border)
 
   frame:SetAlpha(db.opacity / 100)
   bar:SetStatusBarTexture(db.texture)
@@ -186,6 +203,14 @@ function ns.ApplyLayout()
   dot:SetSize(dotSize, dotSize)
   range:SetSize(1, small)
 
+  standBar:SetShown(standOn)
+  standBar:SetStatusBarTexture(db.texture)
+  standBar:SetStatusBarColor(unpack(db.colors.stand))
+  standBar:GetStatusBarTexture():SetVertexColor(unpack(db.colors.stand))
+  standBar:SetOrientation(vertical and "VERTICAL" or "HORIZONTAL")
+  standTrack:SetColorTexture(unpack(db.colors.track))
+  standBorder:SetShown(db.showBorder)
+  standBar:ClearAllPoints()
   bar:ClearAllPoints()
   zone:ClearAllPoints()
   divider:ClearAllPoints()
@@ -206,10 +231,12 @@ function ns.ApplyLayout()
     -- Upright bar filling bottom to top, stand-still window at the top, text to the right.
     barLength = width
     local textW = math.max(statusW, math.ceil(small * 11))
-    local x = thick + 6
+    local x = thick + 6 + standExtra
     frame:SetSize(x + textW, width)
     bar:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
     bar:SetSize(thick, width)
+    standBar:SetPoint("TOPLEFT", bar, "TOPRIGHT", 3, 0)
+    standBar:SetSize(standH, width)
     zone:SetPoint("TOPLEFT")
     zone:SetPoint("TOPRIGHT")
     divider:SetHeight(1)
@@ -252,12 +279,14 @@ function ns.ApplyLayout()
     countdown:SetWidth(countW)
     local leftExtra, rightExtra = 0, 0 -- row layout: text slots beside the bar
     local bottomH = (showInfo or rangeBelow) and (small + GAP) or 0
+    standBar:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", 0, -3)
+    standBar:SetSize(width, standH)
     if layout == "row" then
       local left = db.showStatus and (statusW + 6) or 0
       local right = (db.showCountdown and (countW + 6) or 0) + (ammoOn and (ammoW + 6) or 0)
       leftExtra, rightExtra = left, right
       local rowH = math.max(thick, font + 2)
-      frame:SetSize(left + width + right, rowH + bottomH)
+      frame:SetSize(left + width + right, rowH + standExtra + bottomH)
       bar:SetPoint("TOPLEFT", frame, "TOPLEFT", left, -(rowH - thick) / 2)
       bar:SetSize(width, thick)
       status:SetPoint("RIGHT", bar, "LEFT", -6, 0)
@@ -268,7 +297,7 @@ function ns.ApplyLayout()
       placeAmmo("LEFT", bar, "RIGHT", 6 + (db.showCountdown and (countW + 6) or 0), 0)
     else
       local topH = (db.showStatus or db.showCountdown or ammoOn) and (math.max(font, small) + GAP) or 0
-      frame:SetSize(width, topH + thick + bottomH)
+      frame:SetSize(width, topH + thick + standExtra + bottomH)
       bar:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -topH)
       bar:SetSize(width, thick)
       countdown:SetPoint("BOTTOMRIGHT", bar, "TOPRIGHT", 0, GAP)
@@ -283,12 +312,12 @@ function ns.ApplyLayout()
     -- Under the bar: info on one side, range on the other.
     local pos = db.rangePosition
     local infoRight = rangeBelow and pos == "belowLeft"
-    info:SetPoint(infoRight and "TOPRIGHT" or "TOPLEFT", bar, infoRight and "BOTTOMRIGHT" or "BOTTOMLEFT", 0, -GAP)
+    info:SetPoint(infoRight and "TOPRIGHT" or "TOPLEFT", bar, infoRight and "BOTTOMRIGHT" or "BOTTOMLEFT", 0, -GAP - standExtra)
     info:SetJustifyH(infoRight and "RIGHT" or "LEFT")
     info:SetWidth(width)
     local leftwards = pos == "belowRight" or pos == "left"
-    if pos == "belowRight" then range:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT", 0, -GAP)
-    elseif pos == "belowLeft" then range:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", 0, -GAP)
+    if pos == "belowRight" then range:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT", 0, -GAP - standExtra)
+    elseif pos == "belowLeft" then range:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", 0, -GAP - standExtra)
     elseif pos == "left" then range:SetPoint("RIGHT", bar, "LEFT", -6 - leftExtra, 0)
     else range:SetPoint("LEFT", bar, "RIGHT", 6 + rightExtra, 0) end
     if leftwards then
@@ -305,6 +334,7 @@ function ns.ApplyLayout()
   -- Force colours, sizes and text to refresh on the next frame (a switch in progress just lands).
   lastLabel, shownSpeed, shownWindow, shownInfo, shownAmmo, shownZone = nil, nil, nil, nil, nil, nil
   shown = {}
+  standShown = -1
   rangeReserve = 0
   blend = 1
   setTextAlpha(1)
@@ -337,7 +367,7 @@ end
 -- The stand-still window at the end of the bar; `window` 0 hides it (melee has none).
 -- During a switch it slides from its old size to the new one.
 local function setSpeed(speed, window)
-  window = window or ns.Window()
+  window = window or ns.StandNeed()
   local size
   if blend < 1 then
     local goal = barLength * math.min(window, speed) / speed
@@ -416,7 +446,7 @@ local rangeState, rangeWait, shots, ammo = nil, 0, nil, nil
 
 -- Draw one state of the bar: fill, spark, status text and colour, countdown (nil = none).
 -- `key` tells states with the same text apart (a late "TOO CLOSE" shot vs. melee range).
-local function paint(now, value, left, label, colour, key, pulse)
+local function paint(now, value, left, label, colour, key, pulse, fine)
   -- Mid-switch: glide fill and colour from where they were; the old texts stay up
   -- (fading out) until halfway, then the new ones fade in.
   local swapped = blend >= 0.5
@@ -459,11 +489,13 @@ local function paint(now, value, left, label, colour, key, pulse)
     shown.sparkPulse = false
     spark:SetAlpha(0.9)
   end
-  -- The countdown shows tenths: new text ten times a second, not every frame.
-  local tenths = left and math.floor(left * 10 + 0.5) or -1
-  if tenths ~= shown.tenths and swapped then
-    shown.tenths = tenths
-    countdown:SetText(tenths < 0 and "" or string.format("%.1f", tenths / 10))
+  -- The countdown shows tenths: new text ten times a second, not every frame. While you
+  -- stand still for a shot it is exact to the hundredth.
+  local scale = fine and 100 or 10
+  local steps = left and math.floor(left * scale + 0.5) or -1
+  if (steps ~= shown.tenths or scale ~= shown.scale) and swapped then
+    shown.tenths, shown.scale = steps, scale
+    countdown:SetText(steps < 0 and "" or string.format(fine and "%.2f" or "%.1f", steps / scale))
   end
 end
 
@@ -471,11 +503,27 @@ end
 -- With movement known, the end of the swing follows what you actually do: moving where you
 -- must stand still says STOP, and standing still counts down to the real shot, which comes
 -- a full stand-still window after you stopped if you stopped late.
+local function setStand(v)
+  if v ~= standShown then
+    standShown = v
+    standBar:SetValue(v)
+  end
+end
+
 local function render(now, lastShot, speed, demo)
-  setSpeed(speed)
+  local cycle = speed + (demo and 0 or ns.EarlyDelay())
+  setSpeed(cycle, demo and ns.Window() or nil)
   local phase, value, left = ns.Phase(now, lastShot, speed)
   local late = phase == "late"
-  local label, pulse = "STAND STILL", late
+  local label, pulse, fine = "STAND STILL", late, false
+  -- Stand-still bar: from what you do when movement is known, else from the swing time.
+  if ns.move.known and not demo then
+    setStand(ns.StandProgress(now, lastShot, speed))
+  else
+    local need = math.min(demo and ns.Window() or ns.StandNeed(), cycle)
+    local into = (now - lastShot) - (cycle - need)
+    setStand(math.max(0, math.min(1, into / need)))
+  end
   if phase == "move" then
     label = "MOVE"
   elseif late and LATE_RANGE[rangeState] then
@@ -487,12 +535,13 @@ local function render(now, lastShot, speed, demo)
       left = ns.ShotIn(now, lastShot, speed)
       pulse = not left or left <= 0
       if pulse then left = nil end
+      fine = true
     end
   elseif late then
     left = nil
   end
   local colour = phase == "move" and ns.db.colors.move or ns.db.colors.stand
-  paint(now, value, left, label, colour, label, pulse)
+  paint(now, value, left, label, colour, label, pulse, fine)
   return phase
 end
 
@@ -501,12 +550,14 @@ local function renderMelee(now)
   local m = ns.melee
   setSpeed(m.speed or 1, 0)
   local value, left = ns.MeleePhase(now)
+  setStand(0)
   paint(now, value, left, "MELEE", ns.db.colors.melee, "melee", false)
 end
 
 -- In melee range without swinging: Auto Shot cannot fire, so say so and keep the bar up.
 local function renderClose(now)
   setSpeed(ns.state.speed or 1)
+  setStand(0)
   paint(now, 0, nil, "TOO CLOSE", ns.db.colors.stand, "close", false)
 end
 

@@ -272,7 +272,7 @@ local function build()
   heading(win, "Timing", LEFT, y)
   y = y - 22
   checkbox(win, "Add my ping to the window", LEFT, y, "addPing",
-    "Your 'stopped moving' reaches the server one ping later, so the red window grows by your world latency.")
+    "Your 'stopped moving' reaches the server one ping later, so the red window grows by your world latency. Used until the addon has measured your real stand-still time on a few shots.")
   y = y - 34
   heading(win, "Ammo vendors on the map", LEFT, y)
   y = y - 22
@@ -333,6 +333,8 @@ local function build()
   y = y - 24
   checkbox(win, "Melee & too close", RIGHT, y, "showMelee",
     "In melee range the bar stays up: while you swing it times your melee swings (MELEE, handy for Raptor Strike); otherwise it tells you to back off (TOO CLOSE).")
+  checkbox(win, "Stand-still bar", RIGHT + COL / 2, y, "showStandBar",
+    "A slim second bar under the main one. It fills from the moment you must stand still (or the moment you stop, if you stop late) and is full as the arrow or bullet leaves. The time is measured on your own shots; /hst timing shows it.")
   y = y - 30
   choice(win, "Ammo left", RIGHT, y, "ammoDisplay", ns.AMMO_MODES)
 

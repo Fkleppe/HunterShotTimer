@@ -576,11 +576,20 @@ def main():
     db.width, db.barHeight, db.fontSize, db.smallFontSize = 300, 20, 16, 11
     ns.ApplyLayout()
     check("width and bar height applied", frame.width == 300 and bar.width == 300 and bar.height == 20)
-    check("frame height = text + bar + info row", frame.height == (16 + 4) + 20 + (11 + 4))
+    check("frame height = text + bar + stand-still bar + info row", frame.height == (16 + 4) + 20 + (8 + 3) + (11 + 4))
+    sb = ns.standBar
+    check("stand-still bar: under the bar, full length, slimmer",
+          sb.shown and sb.width == 300 and sb.height == 8 and sb.point[1] == "TOPLEFT" and sb.point[3] == "BOTTOMLEFT"
+          and sb.point[5] == -3)
+    check("info row below the stand-still bar, not on it", ns.ui.info.point[5] == -4 - 11)
     db.showStatus, db.showCountdown, db.showSpeed, db.rangeEnabled = False, False, False, False
     db.showShots, db.ammoDisplay = False, "off"
     ns.ApplyLayout()
-    check("hidden rows take no space", frame.height == 20)
+    check("hidden rows take no space", frame.height == 20 + 11)
+    db.showStandBar = False
+    ns.ApplyLayout()
+    check("stand-still bar off: no room kept for it", frame.height == 20 and not ns.standBar.shown)
+    db.showStandBar = True
     db.showStatus, db.showCountdown, db.showSpeed, db.rangeEnabled = True, True, True, True
     db.showShots, db.ammoDisplay = True, "percent"
     db.opacity = 50
@@ -701,7 +710,7 @@ def main():
     g.tick(37)
     check("demo shows while options open", timer.shown and rng.shown)
     boxes = list(g.checkboxes().values())
-    check("options has the checkboxes", len(boxes) == 19)
+    check("options has the checkboxes", len(boxes) == 20)
     first = boxes[6]  # "Status text" (left column first: ping, then the 5 vendor options)
     first.checked = False
     first.scripts.OnClick(first)
@@ -970,7 +979,7 @@ def main():
     g.tick(7001.7)  # stopped 0.3 s before the swing ends: the shot waits for a full window
     w, still = ns.Window(), ns.move.stillSince
     def shown_left(t):
-        return ns.ui.countdown.text == "%.1f" % (int((t - g.GetTime()) * 10 + 0.5) / 10)
+        return ns.ui.countdown.text == "%.2f" % (int((t - g.GetTime()) * 100 + 0.5) / 100)  # exact while standing
     check("stopped late: the bar sees you stand still", 7001.6 < still <= 7001.7)
     check("stopped late: countdown to the real shot, a full window after you stopped",
           "STAND STILL" in g.shownText() and shown_left(still + w) and still + w > 7002.0)
@@ -992,16 +1001,75 @@ def main():
     g.SlashCmdList.HUNTERSHOTTIMER("timing")
     out = [g.printed[i] for i in range(n + 1, len(g.printed) + 1)]
     check("timing: a gap where you moved is left out", any("you moved, left out" in l for l in out))
+    check("timing: says the stand-still time is not measured yet", any("not measured yet" in l for l in out))
     # Options open: the looping demo ignores your movement.
     g.playerSpeed = 7
     ns.SetUnlocked(True)
     g.tick(7003.7 + 3.0 - (7003.7 % 3.0) + 2.8)
     check("demo ignores movement", "STOP" not in g.shownText())
+    check("demo: the stand-still bar still loops", 0 <= ns.standBar.value <= 1)
     ns.SetUnlocked(False)
     g.playerSpeed = None
     g.fire("STOP_AUTOREPEAT_SPELL")
     g.fire("PLAYER_ENTERING_WORLD")
     g.tick(7010)
+
+    # --- The stand-still bar learns your real stand-still time ------------------------
+    g.fire("PLAYER_ENTERING_WORLD")
+    lua.eval("function(c) c.stand, c.early = {}, {} end")(ns.calib)
+    g.fire("START_AUTOREPEAT_SPELL")
+    g.playerSpeed = 0
+    t0 = 8000.0
+    g.setClock(t0)
+    g.tick(t0 + 0.05)
+    g.fire("PLAYER_SWING", 2.0, 2)
+    last = g.GetTime()
+    # Three swings: run past the swing end, stop, and the shot goes 0.62 s later.
+    for i in range(3):
+        g.playerSpeed = 7
+        g.tick(last + 2.3)
+        g.playerSpeed = 0
+        g.tick(last + 2.35)
+        stop = ns.move.stillSince
+        g.setClock(stop + 0.62)
+        g.fire("PLAYER_SWING", 2.0, 2)
+        last = g.GetTime()
+    check("learned: stand-still time measured from your stops", abs(ns.StandNeed() - 0.62) < 1e-6)
+    # Three swings standing still all along: the shot goes 0.03 s after the swing ends.
+    for i in range(3):
+        g.tick(last + 2.0)
+        g.setClock(last + 2.03)
+        g.fire("PLAYER_SWING", 2.0, 2)
+        last = g.GetTime()
+    check("learned: delay after the swing when standing still", abs(ns.EarlyDelay() - 0.03) < 1e-6)
+    # The bar now follows the measured numbers.
+    g.tick(last + 2.03 - 0.62 + 0.31)  # halfway through the stand-still time
+    check("stand-still bar: half full halfway", abs(ns.standBar.value - 0.5) < 0.03)
+    check("countdown exact to the hundredth while standing", ns.ui.countdown.text == "0.31")
+    g.playerSpeed = 7
+    g.tick(g.GetTime() + 0.05)
+    check("moving: stand-still bar empties, STOP", ns.standBar.value == 0 and "STOP" in g.shownText())
+    g.playerSpeed = 0
+    g.tick(g.GetTime() + 0.05)
+    stop = ns.move.stillSince
+    g.tick(stop + 0.62 / 2)
+    check("stopped late: the bar starts at your stop and runs the full time", abs(ns.standBar.value - 0.5) < 0.03)
+    n = len(g.printed)
+    g.SlashCmdList.HUNTERSHOTTIMER("timing")
+    out = [g.printed[i] for i in range(n + 1, len(g.printed) + 1)]
+    check("timing: shows the measured stand-still time", any("Measured stand-still time: 0.62 s" in l for l in out))
+    # Kept across reloads, and not touched by Reset all.
+    check("measurements are saved", ns.db.calib.stand[1] == ns.calib.stand[1])
+    ns.ResetDB()
+    check("reset keeps the measurements", abs(ns.StandNeed() - 0.62) < 1e-6)
+    junk = ns.InitDB(lua.eval('{ calib = { stand = { 0.5, "x", 0/0, 9 }, early = "bad" } }'))
+    check("saved measurements cleaned", len(junk.calib.stand) == 1 and len(junk.calib.early) == 0)
+    ns.InitDB(ns.db)
+    lua.eval("function(c) c.stand, c.early = {}, {} end")(ns.calib)
+    g.playerSpeed = None
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    g.fire("PLAYER_ENTERING_WORLD")
+    g.tick(g.GetTime() + 5)
 
     # Distance text never contradicts itself.
     def bracket(ans, state):

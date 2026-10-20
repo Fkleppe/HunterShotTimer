@@ -33,11 +33,75 @@ end
 -- keep standing still until it does.
 function ns.Phase(now, lastShot, speed)
   local elapsed = now - lastShot
-  local stand = math.min(ns.Window(), speed)
-  local moveUntil = speed - stand
-  if elapsed < moveUntil then return "move", elapsed / speed, moveUntil - elapsed end
-  if elapsed < speed then return "stand", elapsed / speed, speed - elapsed end
+  local cycle = speed + ns.EarlyDelay()
+  local stand = math.min(ns.StandNeed(), cycle)
+  local moveUntil = cycle - stand
+  if elapsed < moveUntil then return "move", elapsed / cycle, moveUntil - elapsed end
+  if elapsed < cycle then return "stand", elapsed / cycle, cycle - elapsed end
   return "late", 1, 0
+end
+
+-- Measured on your own shots, so the stand-still time fits your ping and the server
+-- instead of a guess:
+--   stand: from the moment you stopped to the shot, when you stopped after the swing was
+--          over (how long you must stand still);
+--   early: from the end of the swing to the shot, when you stood still all along (0 when
+--          the half second sits inside the swing, about 0.5 when it comes on top).
+-- The median of the last few is used once there are three. Kept in the saved settings.
+ns.calib = { stand = {}, early = {} }
+local MAX_SAMPLES, MIN_SAMPLES = 9, 3
+
+-- Asked several times a frame, so the answer is kept until the list changes (a new
+-- sample, or a fresh list from the saved settings).
+local sorted, cached = {}, setmetatable({}, { __mode = "k" })
+local function median(list)
+  local n = #list
+  local c = cached[list]
+  if c and c.n == n and c.last == list[n] then return c.value end
+  local value
+  if n >= MIN_SAMPLES then
+    for i = 1, n do sorted[i] = list[i] end
+    for i = n + 1, #sorted do sorted[i] = nil end
+    table.sort(sorted)
+    value = n % 2 == 1 and sorted[(n + 1) / 2] or (sorted[n / 2] + sorted[n / 2 + 1]) / 2
+  end
+  cached[list] = { n = n, last = list[n], value = value }
+  return value
+end
+
+local function addSample(list, v)
+  cached[list] = nil
+  list[#list + 1] = v
+  if #list > MAX_SAMPLES then table.remove(list, 1) end
+end
+
+-- How long you must stand still before a shot goes: measured, plus your own fine-tuning;
+-- until there are enough shots, the half second plus ping.
+function ns.StandNeed()
+  local m = median(ns.calib.stand)
+  if not m then return ns.Window() end
+  local db = ns.db or ns.DEFAULTS
+  return math.max(0.1, m + db.windowExtra / 1000)
+end
+
+function ns.EarlyDelay()
+  local m = median(ns.calib.early)
+  return m and math.max(0, m) or 0
+end
+
+-- A shot just fired: if you were standing still for it, learn from it.
+local function learn(now, s)
+  local m = ns.move
+  if not (s.lastShot and s.speed) or s.gapBroken or ns.unlocked then return end
+  if not m.known or m.moving or not m.stillSince then return end
+  local swingEnd = s.lastShot + s.speed
+  if m.stillSince >= swingEnd then
+    local v = now - m.stillSince
+    if v >= 0.15 and v <= 1.2 then addSample(ns.calib.stand, v) end
+  elseif m.stillSince <= swingEnd - 1.0 then
+    local v = now - swingEnd
+    if v >= -0.1 and v <= 0.8 then addSample(ns.calib.early, v) end
+  end
 end
 
 -- gapBroken: something besides the swing came between this shot and the last one (a
@@ -73,13 +137,27 @@ function ns.PollMovement(now)
   ns.OnMovement(now, speed > 0 or (not issecret(falling) and falling == true))
 end
 
--- Seconds until the shot fires if you stay still: when the swing ends, but never sooner
--- than a full stand-still window after you stopped. nil while you move, or when
--- movement is not known.
-function ns.ShotIn(now, lastShot, speed)
+-- When the shot fires if you stay still: when the swing ends, but never sooner than the
+-- full stand-still time after you stopped. nil while you move, or when movement is not known.
+function ns.ShotAt(lastShot, speed)
   local m = ns.move
   if not m.known or m.moving or not m.stillSince then return nil end
-  return math.max(0, math.max(lastShot + speed, m.stillSince + ns.Window()) - now)
+  return math.max(lastShot + speed + ns.EarlyDelay(), m.stillSince + ns.StandNeed())
+end
+
+function ns.ShotIn(now, lastShot, speed)
+  local at = ns.ShotAt(lastShot, speed)
+  return at and math.max(0, at - now)
+end
+
+-- The stand-still bar: 0 -> 1 over exactly the time you must stand still, ending as the
+-- shot goes. It starts when you stop, or when the stand-still part of the swing begins if
+-- you were already standing. 0 while you move.
+function ns.StandProgress(now, lastShot, speed)
+  local at = ns.ShotAt(lastShot, speed)
+  if not at then return 0 end
+  local need = ns.StandNeed()
+  return math.max(0, math.min(1, (now - (at - need)) / need))
 end
 
 -- The last few gaps between Auto Shots, next to the speed the game reported, for
@@ -93,6 +171,7 @@ local MAX_GAPS = 10
 function ns.OnShot(now, duration)
   if issecret(duration) or type(duration) ~= "number" or duration ~= duration or duration <= 0 or duration > 10 then return end
   local s = ns.state
+  learn(now, s)
   if s.lastShot and s.speed and not s.gapBroken then
     table.insert(ns.gaps, { gap = now - s.lastShot, speed = s.speed, moved = s.moved })
     if #ns.gaps > MAX_GAPS then table.remove(ns.gaps, 1) end
@@ -112,6 +191,13 @@ function ns.TimingReport()
     local note = g.moved and " - you moved, left out" or held and " - held up, left out" or ""
     lines[#lines + 1] = string.format("%d. %.2f s apart, speed %.2f s (%+.2f s)%s", i, g.gap, g.speed, over, note)
     if not held and not g.moved then extra, n = extra + over, n + 1 end
+  end
+  local stand, early = median(ns.calib.stand), median(ns.calib.early)
+  lines[#lines + 1] = stand
+    and string.format("Measured stand-still time: %.2f s (from %d shots where you stopped late).", stand, #ns.calib.stand)
+    or string.format("Stand-still time not measured yet (%d of 3 shots): stop after a swing ends and let the shot go. Using %.2f s.", #ns.calib.stand, ns.Window())
+  if early then
+    lines[#lines + 1] = string.format("Shot after the swing ends, standing still: %+.2f s (%d shots).", early, #ns.calib.early)
   end
   if n < 3 then
     lines[#lines + 1] = "Not enough shots yet: stand still and let Auto Shot fire 6 times, then type /hst timing."

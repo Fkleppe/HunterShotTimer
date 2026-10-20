@@ -24,6 +24,7 @@ ns.DEFAULTS = {
   showBorder = true,
   showShots = true, -- estimated Auto Shots to kill the target
   showMelee = true, -- in melee range the bar stays: melee swing timer, or "too close"
+  showStandBar = true, -- a second bar: exactly how long you must stand still for the shot
   ammoDisplay = "percent", -- "off" / "percent" / "count"
 
   rangeEnabled = true,
@@ -121,16 +122,30 @@ function ns.InitDB(saved)
   db.vendorAlliance, db.vendorHorde = nil, nil
   db.configVersion = 4
   merge(db, ns.DEFAULTS)
+  -- Measured stand-still times (Timer.lua): plain numbers only, at most the last nine.
+  local calib = type(db.calib) == "table" and db.calib or {}
+  for _, k in ipairs({ "stand", "early" }) do
+    local clean = {}
+    if type(calib[k]) == "table" then
+      for _, v in ipairs(calib[k]) do
+        if type(v) == "number" and v == v and v > -1 and v < 2 then clean[#clean + 1] = v end
+      end
+    end
+    while #clean > 9 do table.remove(clean, 1) end
+    calib[k] = clean
+  end
+  db.calib = calib
+  ns.calib = calib
   ns.db = db
   return db
 end
 
 -- Back to defaults, keeping where the bar sits on screen.
 function ns.ResetDB()
-  local point = ns.db.point
+  local point, calib = ns.db.point, ns.db.calib
   for k in pairs(ns.db) do ns.db[k] = nil end
   merge(ns.db, ns.DEFAULTS)
-  ns.db.point = point
+  ns.db.point, ns.db.calib = point, calib -- measurements are not settings
   ns.db.configVersion = 4
 end
 
