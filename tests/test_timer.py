@@ -1106,6 +1106,12 @@ def main():
     check("timing: shows the measured stand-still time", any("Measured stand-still time: 0.62 s" in l for l in out))
     # Kept across reloads, and not touched by Reset all.
     check("measurements are saved", ns.db.calib.stand[1] == ns.calib.stand[1])
+    log = ns.db.shotLog
+    row = log[len(log)]
+    check("shot log saved, last 40 at most", 0 < len(log) <= 40 and row.known == 1 and row.gap is not None
+          and row.speed == 2.0 and row.afterSwing is not None)
+    stopped = [log[i] for i in range(1, len(log) + 1) if log[i].still is not None and 0.6 < log[i].still < 0.64]
+    check("shot log: how long you stood still before the shot", len(stopped) >= 3)
     ns.ResetDB()
     check("reset keeps the measurements", abs(ns.StandNeed() - 0.62) < 1e-6)
     junk = ns.InitDB(lua.eval('{ calib = { stand = { 0.5, "x", 0/0, 9 }, early = "bad" } }'))

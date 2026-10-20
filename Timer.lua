@@ -89,6 +89,35 @@ function ns.EarlyDelay()
   return m and math.max(0, m) or 0
 end
 
+-- The last shots as plain numbers, saved with the settings, so the timing can be checked
+-- after a /reload without copying chat. One small row per shot, at most SHOT_LOG rows.
+ns.shotLog = {}
+local SHOT_LOG = 40
+local function r3(v) return v and math.floor(v * 1000 + 0.5) / 1000 end
+
+local function logShot(now, s, duration)
+  local m = ns.move
+  local row = {
+    t = r3(now),
+    speed = r3(duration),
+    ping = math.floor(ns.latency * 1000 + 0.5),
+    known = m.known and 1 or 0,
+  }
+  if s.lastShot and s.speed then
+    row.gap = r3(now - s.lastShot)
+    row.prev = r3(s.speed)
+    row.afterSwing = r3(now - (s.lastShot + s.speed))
+    row.broken = s.gapBroken and 1 or 0
+    row.moved = s.moved and 1 or 0
+  end
+  if m.known then
+    row.still = m.moving and -1 or (m.stillSince and r3(now - m.stillSince)) or nil
+  end
+  local log = ns.shotLog
+  log[#log + 1] = row
+  while #log > SHOT_LOG do table.remove(log, 1) end
+end
+
 -- A shot just fired: if you were standing still for it, learn from it.
 local function learn(now, s)
   local m = ns.move
@@ -171,6 +200,7 @@ local MAX_GAPS = 10
 function ns.OnShot(now, duration)
   if issecret(duration) or type(duration) ~= "number" or duration ~= duration or duration <= 0 or duration > 10 then return end
   local s = ns.state
+  logShot(now, s, duration)
   learn(now, s)
   if s.lastShot and s.speed and not s.gapBroken then
     table.insert(ns.gaps, { gap = now - s.lastShot, speed = s.speed, moved = s.moved })

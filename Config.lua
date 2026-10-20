@@ -136,16 +136,26 @@ function ns.InitDB(saved)
   end
   db.calib = calib
   ns.calib = calib
+  -- Shot log (Timer.lua): rows of plain numbers; anything else is dropped.
+  local log = {}
+  if type(db.shotLog) == "table" then
+    for _, row in ipairs(db.shotLog) do
+      if type(row) == "table" and type(row.t) == "number" then log[#log + 1] = row end
+    end
+  end
+  while #log > 40 do table.remove(log, 1) end
+  db.shotLog = log
+  ns.shotLog = log
   ns.db = db
   return db
 end
 
 -- Back to defaults, keeping where the bar sits on screen.
 function ns.ResetDB()
-  local point, calib = ns.db.point, ns.db.calib
+  local point, calib, log = ns.db.point, ns.db.calib, ns.db.shotLog
   for k in pairs(ns.db) do ns.db[k] = nil end
   merge(ns.db, ns.DEFAULTS)
-  ns.db.point, ns.db.calib = point, calib -- measurements are not settings
+  ns.db.point, ns.db.calib, ns.db.shotLog = point, calib, log -- measurements are not settings
   ns.db.configVersion = 4
 end
 
