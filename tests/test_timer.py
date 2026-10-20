@@ -94,8 +94,9 @@ function CreateFromMixins(...)
 end
 MapCanvasPinMixin = {}
 MapCanvasDataProviderMixin = { GetMap = function(self) return self.owningMap end }
-Enum = { UIMapType = { Continent = 2, Zone = 3 } }
+Enum = { UIMapType = { Cosmic = 0, World = 1, Continent = 2, Zone = 3 } }
 mapInfos = {
+  [947] = { mapID = 947, name = "Azeroth", mapType = 1, parentMapID = 946 },
   [1415] = { mapID = 1415, name = "Eastern Kingdoms", mapType = 2, parentMapID = 947 },
   [1414] = { mapID = 1414, name = "Kalimdor", mapType = 2, parentMapID = 947 },
   [1429] = { mapID = 1429, name = "Elwynn Forest", mapType = 3, parentMapID = 1415 },
@@ -116,6 +117,8 @@ C_Map = {
     if from == 1429 and to == 1415 then return 0.4, 0.5, 0.7, 0.8 end
     if from == 1453 and to == 1429 then return 0.2, 0.4, 0.3, 0.5 end
     if from == 1411 and to == 1414 then return 0.5, 0.6, 0.5, 0.6 end
+    if from == 1429 and to == 947 then return 0.7, 0.75, 0.6, 0.65 end
+    if from == 1411 and to == 947 then return 0.25, 0.3, 0.5, 0.55 end
     error("not on that map")
   end,
   CanSetUserWaypointOnMap = function() return true end,
@@ -586,7 +589,7 @@ def main():
     # Layouts: one row puts text beside the bar; vertical stands the bar up.
     db.layout = "row"
     ns.ApplyLayout()
-    check("row layout: text beside the bar", frame.width == (72 + 6) + 220 + (27 + 6) + (39 + 6) and bar.width == 220)
+    check("row layout: text beside the bar", frame.width == (72 + 6) + 220 + (27 + 6) + (43 + 6) and bar.width == 220)
     db.layout = "vertical"
     ns.ApplyLayout()
     check("vertical layout: bar stands up", bar.width == 10 and bar.height == 220 and frame.height == 220)
@@ -608,7 +611,7 @@ def main():
                         db.ammoDisplay, db.showCountdown = ammo, countdown_on
                         ns.ApplyLayout()
                         countSlot = (-(-font * 2.2 // 1) + 8) if countdown_on else 0
-                        ammoSlot = (small + 3 + -(-small * 2.6 // 1) + 8) if ammo != "off" else 0
+                        ammoSlot = (small + 3 + -(-small * 3.0 // 1) + 8) if ammo != "off" else 0
                         if abs(ui.status.width - max(1, width - countSlot - ammoSlot)) > 1e-6:
                             worst.append((width, font, small, ammo, countdown_on, ui.status.width))
     check("top row slots never overlap", not worst)
@@ -638,16 +641,16 @@ def main():
     g.setClock(30)  # back to where the following steps expect the clock
 
     # --- Shots to kill -------------------------------------------------------------
-    check("average shot like the character sheet", ns.AverageShot(40, 60, 10, 0, 1) == 60)
+    check("average shot like the character sheet: min and max are already final", ns.AverageShot(40, 60, 10, 0, 1.05) == 50)
     check("secret damage ignored", ns.AverageShot("SECRET", 60, 0, 0, 1) is None)
     ns.UpdateShotDamage()
-    check("shot damage cached", ns.shotDamage == 60)
+    check("shot damage cached", ns.shotDamage == 50)
     check("shots from plain health", ns.ShotsFrom(1000, 1000, 60) == 17)
     check("secret health shows nothing", ns.ShotsFrom("SECRET", 1000, 60) is None)
     check("percent-only health shows nothing", ns.ShotsFrom(80, 100, 60) is None)
     g.ranged = lua.eval('{ "SECRET", "SECRET", "SECRET", 0, 0, 1 }')
     ns.UpdateShotDamage()
-    check("cached damage survives secret combat reads", ns.shotDamage == 60)
+    check("cached damage survives secret combat reads", ns.shotDamage == 50)
 
     # --- Ammo ----------------------------------------------------------------------
     ns.RefreshAmmo()
@@ -680,7 +683,7 @@ def main():
     g.tick(30.5)
     g.fire("PLAYER_SWING", 2.8, 2)
     g.tick(31)
-    check("info row shows speed and shots", "2.80s   ~10 shots" in g.shownText())
+    check("info row shows speed and shots", "2.80s   ~12 shots" in g.shownText())
     check("ammo in its own slot, percent by default", ns.ui.ammoText.text == "|cff40d860Arrows 100%|r")
     target.health = "SECRET"
     g.tick(31.2)
@@ -731,7 +734,7 @@ def main():
     report = " ".join(str(v) for v in g.printed.values())
     g.SlashCmdList.HUNTERSHOTTIMER("probe")
     report = " ".join(str(v) for v in g.printed.values())
-    check("probe report", "target health = 1000" in report and "average shot (cached) = 60.0" in report)
+    check("probe report", "target health = 1000" in report and "average shot (cached) = 50.0" in report)
     check("range report", "C_Spell id 75 = error" in report and "within ~10 yd = false" in report)
     # --- Ammo vendors on the world map ----------------------------------------------
     vendors = [ns.AMMO_VENDORS[i + 1] for i in range(len(ns.AMMO_VENDORS))]
@@ -810,6 +813,7 @@ def main():
         p.size == 13 and 0.4 <= p.x <= 0.5 and 0.7 <= p.y <= 0.8 for p in continent))
     db.vendorContinent = False
     check("continent switch", pins(1415) == [])
+    check("no pins on the whole-world map, whatever the switches", pins(947) == [])
     db.vendorContinent = True
     teldrassil = pins(2000)
     check("renamed map ID found by zone name", teldrassil and all(p.vendor.map == 1438 for p in teldrassil))
@@ -947,6 +951,76 @@ def main():
     g.fire("PLAYER_ENTERING_WORLD")
     shots([4000 + 2.0 * i for i in range(30)])
     check("timing: keeps only the last 10 gaps", len(ns.gaps) == 10)
+
+    # Distance text never contradicts itself.
+    def bracket(ans, state):
+        r = ns.Bracket(lua.table_from(ans), state)
+        return r if isinstance(r, tuple) else (r,)
+    check("only the 100 yd step answered: no distance", bracket({100: True}, "far")[0] is None)
+    check("Auto Shot reaches it: never under 8 yd", bracket({5: True, 10: True, 100: True}, "in") == (8, 10))
+    # Ammo: a brief 0 (ammo swapped, loading screen) is not a restock.
+    ns.ammo.capacity, ns.ammo.last = None, None
+    ns.AmmoShare(400)
+    ns.AmmoShare(300)
+    ns.AmmoShare(0)
+    check("ammo: a brief 0 is not a restock", abs(ns.AmmoShare(300) - 0.75) < 1e-9)
+    ns.RefreshAmmo()
+    ns.ammo.last = None
+    # A melee swing (it puts Auto Shot on cooldown) or Auto Shot switched off and on breaks
+    # the gap: it is left out, so it cannot make a right bar look wrong.
+    g.fire("PLAYER_ENTERING_WORLD")
+    shots([5000, 5002, 5004])
+    g.setClock(5004.5)
+    g.fire("PLAYER_SWING", 1.8, 0)
+    shots([5006.6, 5008.6])
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    g.setClock(5009.0)
+    g.fire("START_AUTOREPEAT_SPELL")
+    shots([5011.4, 5013.4, 5015.4])
+    out = timing()
+    check("timing: gaps broken by melee or a restart left out",
+          len(ns.gaps) == 5 and all(abs(x.gap - x.speed) < 1e-9 for x in ns.gaps.values())
+          and any("The bar is right." in l for l in out))
+    g.fire("STOP_AUTOREPEAT_SPELL")
+
+    # --- Switches that are cut short, and the game's melee/Auto Shot auto-switch ----------
+    g.fire("PLAYER_ENTERING_WORLD")
+    target.exists, target.hostile, target.autoShot, target.close = True, True, False, True
+    g.combat = True
+    g.setClock(6000)
+    g.fire("PLAYER_ENTER_COMBAT")
+    g.fire("PLAYER_SWING", 1.8, 0)
+    g.tick(6001.0)
+    g.fire("PLAYER_LEAVE_COMBAT")
+    g.tick(6002.35)  # the last swing runs out: the switch to TOO CLOSE starts...
+    check("cut-short switch: under way", 0 < ns.ui.status.alpha < 1)
+    g.combat = False  # ...and the mob dies mid-switch
+    g.tick(6003.5)
+    target.close, target.autoShot = False, True
+    g.fire("START_AUTOREPEAT_SPELL")
+    g.fire("PLAYER_SWING", 2.5, 2)
+    g.tick(6004.0)
+    check("cut-short switch: next time the texts are whole", "MOVE" in g.shownText()
+          and ns.ui.status.alpha == 1 and ns.ui.countdown.alpha == 1)
+    # Melee, then you step out and the game swaps back to Auto Shot: the shot bar is back
+    # at once, not a MELEE countdown until the first shot.
+    target.autoShot, target.close = False, True
+    g.combat = True
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    g.fire("PLAYER_ENTER_COMBAT")
+    g.fire("PLAYER_SWING", 1.8, 0)
+    g.tick(6004.6)
+    check("auto-switch: melee", "MELEE" in g.shownText())
+    target.autoShot, target.close = True, False
+    g.fire("PLAYER_LEAVE_COMBAT")
+    g.fire("START_AUTOREPEAT_SPELL")
+    g.tick(6005.0)
+    check("auto-switch: back to Auto Shot, the shot bar shows before the first shot",
+          "MELEE" not in g.shownText() and ("MOVE" in g.shownText() or "STAND STILL" in g.shownText()))
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    g.combat = False
+    target.exists, target.autoShot, target.close = False, None, False
+    ns.melee.lastSwing = None
 
     print({"result": "PASS", "checks": len(checks)})
 

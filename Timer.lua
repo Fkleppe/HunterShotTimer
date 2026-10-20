@@ -40,7 +40,10 @@ function ns.Phase(now, lastShot, speed)
   return "late", 1, 0
 end
 
-ns.state = { lastShot = nil, speed = nil, shooting = false }
+-- gapBroken: something besides the swing came between this shot and the last one (a
+-- melee swing, which puts Auto Shot on cooldown, or Auto Shot switched off and on), so
+-- /hst timing leaves that gap out.
+ns.state = { lastShot = nil, speed = nil, shooting = false, gapBroken = false }
 
 -- The last few gaps between Auto Shots, next to the speed the game reported, for
 -- /hst timing: since the 16 October beta build Auto Shot needs 0.5 s of standing still,
@@ -53,11 +56,11 @@ local MAX_GAPS = 10
 function ns.OnShot(now, duration)
   if issecret(duration) or type(duration) ~= "number" or duration ~= duration or duration <= 0 or duration > 10 then return end
   local s = ns.state
-  if s.lastShot and s.speed then
+  if s.lastShot and s.speed and not s.gapBroken then
     table.insert(ns.gaps, { gap = now - s.lastShot, speed = s.speed })
     if #ns.gaps > MAX_GAPS then table.remove(ns.gaps, 1) end
   end
-  s.lastShot, s.speed = now, duration
+  s.lastShot, s.speed, s.gapBroken = now, duration, false
 end
 
 -- Gaps longer than this past the speed were held up (moving, out of range): left out.
@@ -94,6 +97,7 @@ ns.melee = { lastSwing = nil, speed = nil, attacking = false }
 function ns.OnMeleeSwing(now, duration)
   if issecret(duration) or type(duration) ~= "number" or duration ~= duration or duration <= 0 or duration > 10 then return end
   ns.melee.lastSwing, ns.melee.speed = now, duration
+  ns.state.gapBroken = true
 end
 
 -- In melee? A melee swing within the last swing time (+ a little, in case the "attack
@@ -101,9 +105,12 @@ end
 -- last wins, so stepping back and shooting brings the shot bar back at once. Before the
 -- first swing, melee auto-attack being on counts too, but only with Auto Shot off and the
 -- target too close to shoot (`range` == "close"): right-clicking a target far away also
--- switches melee attack on, and that must not turn the bar into MELEE.
+-- switches melee attack on, and that must not turn the bar into MELEE. Auto Shot back on
+-- with melee attack off (you stepped out, or the game's auto-switch swapped back) ends
+-- melee at once, without waiting for the first shot.
 function ns.MeleeActive(now, range)
   local m, s = ns.melee, ns.state
+  if s.shooting and not m.attacking then return false end
   if m.lastSwing and now - m.lastSwing < m.speed + 0.5 and not (s.lastShot and s.lastShot > m.lastSwing) then
     return true
   end

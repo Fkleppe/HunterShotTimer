@@ -65,7 +65,12 @@ function ns.Bracket(answers, autoShot)
   end
   if hi == 100 then hi = nil end -- "45-100" says less than "45+"
   if autoShot == "close" then hi, lo = 8, math.min(lo, 5) end
-  if autoShot == "in" and lo < 8 then lo = 8 end
+  if autoShot == "in" then
+    -- Auto Shot reaches it, so it is 8 yd or more, whatever a stale item answer says.
+    if lo < 8 then lo = 8 end
+    if hi and hi <= 8 then hi = 10 end
+  end
+  if lo == 0 and not hi then return nil end -- only the 100 yd step answered: says nothing
   if hi and lo >= hi then lo = hi - 5 end -- answers that disagree mid-crossing
   return lo, hi
 end

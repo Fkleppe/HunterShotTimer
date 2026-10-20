@@ -92,9 +92,10 @@ end
 -- Share of a full load: of the quiver when there is one, else of the restock peak.
 function ns.AmmoShare(count)
   local a = ns.ammo
-  -- More than last time means you restocked: that is the new full load.
+  -- More than last time means you restocked: that is the new full load. A brief 0 (ammo
+  -- swapped, loading screen) is not "used up", so it does not count as the last value.
   if not a.last or count > a.last then a.peak = count end
-  a.last = count
+  if count > 0 then a.last = count end
   local full = a.capacity or a.peak
   if not full or full <= 0 then return nil end
   return math.min(1, count / full)

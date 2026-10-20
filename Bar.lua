@@ -117,6 +117,7 @@ end
 local vertical = false
 local barLength = 0 -- along the fill direction
 local infoShare = false -- info and range share the row under the bar
+local rangeReserve = 0 -- room kept for the range text next to the info
 local lastLabel, shownSpeed, shownWindow, shownInfo, shownAmmo
 -- What each widget shows now, so a frame only touches widgets whose content changed.
 local shown = {}
@@ -160,7 +161,7 @@ function ns.ApplyLayout()
   infoShare = showInfo and rangeBelow
   local statusW = math.ceil(font * 6)         -- "OUT OF RANGE"
   local countW = math.ceil(font * 2.2)        -- "10.0"
-  local ammoTextW = math.ceil(small * 2.6)    -- "100%" / "1200"
+  local ammoTextW = math.ceil(small * 3.0)    -- "100%" / "1200"
   local ammoW = small + 3 + ammoTextW
   local dotSize = math.max(4, math.floor(small * 0.5))
 
@@ -304,6 +305,7 @@ function ns.ApplyLayout()
   -- Force colours, sizes and text to refresh on the next frame (a switch in progress just lands).
   lastLabel, shownSpeed, shownWindow, shownInfo, shownAmmo, shownZone = nil, nil, nil, nil, nil, nil
   shown = {}
+  rangeReserve = 0
   blend = 1
   setTextAlpha(1)
 end
@@ -320,7 +322,11 @@ local function fitInfo(rangeVisible)
     used = dot:GetWidth() + 10
     if rangeText:IsShown() then used = used + (rangeText:GetStringWidth() or 0) + 4 end
   end
-  local room = barLength - used
+  -- Keep the room for the range text steady: "~23 yd" and "~28 yd" are not quite the same
+  -- width, and the info must not jump each time the distance changes. It only follows when
+  -- the range text grows, or gets a lot shorter.
+  if used > rangeReserve or used < rangeReserve - ns.db.smallFontSize * 2 then rangeReserve = used end
+  local room = barLength - rangeReserve
   -- Too narrow to say anything useful: leave the row to the range check.
   local fits = room >= (ns.db.smallFontSize * 2)
   info:SetWidth(math.max(1, room))
@@ -525,6 +531,14 @@ local function inCombat()
   return not ns.issecret(v) and v and true or false
 end
 
+-- End a switch: hand back to the cached (change-only) drawing with full texts and the
+-- final colour, window and countdown.
+local function landBlend()
+  blend = 1
+  lastLabel, shownSpeed, shown.tenths = nil, nil, nil
+  setTextAlpha(1)
+end
+
 -- Start gliding to `new`. A bar that is not on screen yet just shows the new mode: its
 -- own fade-in is the transition.
 local function switchTo(new)
@@ -533,21 +547,16 @@ local function switchTo(new)
     blend = 0
     from.value, from.zone, from.label = shownValue, shownZone or 0, shown.label
     for i = 1, 4 do from.colour[i] = shownColour[i] end
-  else
-    blend = 1
+  elseif blend < 1 then
+    landBlend() -- a switch cut short must not leave the texts half faded
   end
   prevMode, mode = mode, new
 end
 
--- Move a switch along; at the end, hand back to the cached (change-only) drawing.
 local function advanceBlend(dt)
   if blend >= 1 then return end
   blend = blend + dt / BLEND_TIME
-  if blend > 0.999 then
-    blend = 1
-    lastLabel, shownSpeed, shown.tenths = nil, nil, nil -- final colour, window and countdown
-    setTextAlpha(1)
-  end
+  if blend > 0.999 then landBlend() end
 end
 
 -- The range check flips between "too close" and "in range" right at the edge of melee;
@@ -622,6 +631,10 @@ frame:SetScript("OnUpdate", function(_, dt)
     switchTo("shot")
     advanceBlend(dt)
     active = render(now, s.lastShot, s.speed) ~= "late" or s.shooting
+  elseif blend < 1 then
+    -- Nothing left to show mid-switch (the fight ended): land it, so the next time the
+    -- bar shows it starts clean instead of finishing an old glide.
+    landBlend()
   end
   fade(timer, active, dt)
 
@@ -732,7 +745,7 @@ events:SetScript("OnEvent", function(_, event, a, b)
     -- A new bow or gun changes which vendors "Match my weapon" shows.
     if event == "PLAYER_EQUIPMENT_CHANGED" and a == 18 and ns.RefreshVendorPins then ns.RefreshVendorPins() end
   elseif event == "START_AUTOREPEAT_SPELL" then
-    ns.state.shooting = true
+    ns.state.shooting, ns.state.gapBroken = true, true
   elseif event == "STOP_AUTOREPEAT_SPELL" then
     ns.state.shooting = false
   elseif event == "PLAYER_ENTERING_WORLD" then

@@ -127,8 +127,11 @@ local MERGE, MERGE_SMALL = 0.012, 0.022
 function ns.VendorPins(mapID, db, kinds)
   local pins = {}
   local info = mapInfo(mapID)
-  local continent = info and Enum and Enum.UIMapType and info.mapType == Enum.UIMapType.Continent
+  local types = Enum and Enum.UIMapType
+  local continent = info and types and info.mapType == types.Continent
   if continent and not db.vendorContinent then return pins end
+  -- The whole world (Azeroth) or above: far too zoomed out for vendor pins.
+  if info and types and info.mapType and info.mapType < types.Continent then return pins end
   for _, v in ipairs(ns.VendorList(db, kinds)) do
     local home = mapFor(v.map)
     local x, y, outside = project(home, mapID, v.x, v.y)
@@ -423,7 +426,10 @@ end
 local provider
 function ns.RefreshVendorPins()
   miniDirty = true
-  if provider and provider:GetMap() then provider:RefreshAllData() end
+  -- A hidden world map refreshes its pins itself when it opens, so dragging a slider in
+  -- the options does not rebuild 117 vendors per step for nothing.
+  local map = provider and provider:GetMap()
+  if map and (not map.IsShown or map:IsShown()) then provider:RefreshAllData() end
 end
 
 function ns.AttachVendorMap()

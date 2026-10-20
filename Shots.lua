@@ -12,7 +12,9 @@ function ns.AverageShot(minDamage, maxDamage, posBuff, negBuff, percent)
   for _, v in ipairs({ minDamage, maxDamage, posBuff, negBuff, percent }) do
     if ns.issecret(v) or type(v) ~= "number" or v ~= v then return nil end
   end
-  local avg = ((minDamage + maxDamage) / 2 + posBuff + negBuff) * percent
+  -- min and max already hold the attack power, buffs and damage multiplier: the character
+  -- sheet backs them out to show base damage, and its full damage is the plain average.
+  local avg = (minDamage + maxDamage) / 2
   return avg > 0 and avg or nil
 end
 

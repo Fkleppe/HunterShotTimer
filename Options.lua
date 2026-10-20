@@ -355,7 +355,7 @@ local function build()
   end)
   button(win, "Reset all settings", 140, "BOTTOMLEFT", 144, 14, function()
     ns.ResetDB()
-    ns.ApplyLayout()
+    changed() -- the vendor pins follow the reset vendor settings
     refreshAll()
   end)
   button(win, "Done", 90, "BOTTOMRIGHT", -16, 14, function() win:Hide() end)
