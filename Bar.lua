@@ -20,6 +20,7 @@ local RANGE = {
 -- An overdue shot held up by range, not by moving: standing still will not help.
 local LATE_RANGE = { close = "TOO CLOSE", far = "OUT OF RANGE" }
 local MUTED = { 0.62, 0.64, 0.67 }
+local IDLE = { 0.42, 0.43, 0.46, 0.8 } -- stand-still bar while you move between shots
 
 local function text(parent, justify)
   local fs = parent:CreateFontString(nil, "OVERLAY")
@@ -85,8 +86,8 @@ for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", -1, 1, 1, 1, true }, { "BOTTOMLEFT
 end
 
 -- Stand-still bar: a slim second bar under the main one. Red while you must stand still,
--- filling over exactly that time; the moment the shot is away it turns solid green (go)
--- and stays green while you may move.
+-- filling over exactly that time; the moment the shot is away it turns solid green (go).
+-- Once you are on the move it goes grey: the signal has done its job.
 local standBar = CreateFrame("StatusBar", nil, timer)
 standBar:SetMinMaxValues(0, 1)
 standBar:SetValue(0)
@@ -505,7 +506,8 @@ end
 -- With movement known, the end of the swing follows what you actually do: moving where you
 -- must stand still says STOP, and standing still counts down to the real shot, which comes
 -- a full stand-still window after you stopped if you stopped late.
--- `key`: "move" (green) or "stand" (red), from the colour settings. `waiting`: full, but
+-- `key`: "move" (green) or "stand" (red) from the colour settings, or "idle" (grey,
+-- moving after the shot). `waiting`: full, but
 -- the shot has not gone yet: it blinks, so a full red bar never reads as "done, go".
 local standBlink = false
 local function setStand(v, key, waiting, now)
@@ -522,7 +524,7 @@ local function setStand(v, key, waiting, now)
   end
   if key ~= standColour then
     standColour = key
-    local c = ns.db.colors[key]
+    local c = key == "idle" and IDLE or ns.db.colors[key]
     standBar:SetStatusBarColor(c[1], c[2], c[3], c[4] or 1)
     standBar:GetStatusBarTexture():SetVertexColor(c[1], c[2], c[3], c[4] or 1)
   end
@@ -534,11 +536,11 @@ local function render(now, lastShot, speed, demo)
   local phase, value, left = ns.Phase(now, lastShot, speed)
   local late = phase == "late"
   local label, pulse, fine = "STAND STILL", late, false
-  -- Stand-still bar. Free to move: solid green. Then red, filling from what you do when
-  -- movement is known, else from the swing time.
+  -- Stand-still bar. Shot away, free to move: solid green, grey once you are moving. Then
+  -- red, filling from what you do when movement is known, else from the swing time.
   local need = math.min(demo and ns.Window() or ns.StandNeed(), cycle)
   if phase == "move" then
-    setStand(1, "move")
+    setStand(1, (ns.move.known and ns.move.moving and not demo) and "idle" or "move")
   elseif ns.move.known and not demo then
     local v = ns.StandProgress(now, lastShot, speed)
     setStand(v, "stand", v >= 1, now)

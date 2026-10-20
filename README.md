@@ -76,7 +76,7 @@ The bar is one swing long:
 | **Red window at the end** | Stand still here. It is the engine's half second, plus your ping (your "I stopped" has to reach the server). |
 | **Red, "STAND STILL"** | The shot is coming: do not move. The countdown shows how long until it fires. |
 | **Red, "STOP"** | You are moving where you must stand still. The shot waits until you stop. |
-| **Slim bar underneath** | Red: stand still; it fills over exactly that time and is full as the arrow or bullet leaves. Solid green: the shot is away, move. |
+| **Slim bar underneath** | Red: stand still; it fills over exactly that time and is full as the arrow or bullet leaves. Solid green: the shot is away, move. Grey: you are moving between shots. |
 | **Spark** | Where you are in the swing. It pulses while a shot is overdue. |
 | **Flash** | A short flash across the bar when the shot fires. |
 
@@ -88,8 +88,8 @@ seem to come "late" for no reason.
 
 **The stand-still bar shows exactly how long to stand still.** It turns red and fills from
 the moment you have to stand still (or the moment you stop, if you stop late). The moment the
-arrow or bullet is away it turns solid green: move. It stays green until you have to stand
-still again. While you stand, the countdown runs in hundredths (`0.29`). If you move, it empties
+arrow or bullet is away (the game's own shot event, not a guess) it turns solid green: move.
+Once you are moving it goes grey, so a bright line only ever means "go now" or "stand". While you stand, the countdown runs in hundredths (`0.29`). If you move, it empties
 and says STOP. The time is not a guess: the addon measures it on your own shots (from the
 moment you stopped to the moment the arrow left), so your ping and the server's timing are
 in it. Until it has three such shots it uses the half second plus your ping. `/hst timing`

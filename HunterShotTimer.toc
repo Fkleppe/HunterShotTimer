@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Hunter Shot Timer
 ## Notes: Auto Shot bar: when you can move, and when to stand still for the next shot. Ammo vendors on the world map and minimap. /hst
-## Version: 0.10.3
+## Version: 0.10.4
 ## SavedVariables: HunterShotTimerDB
 
 Config.lua

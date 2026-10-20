@@ -1080,9 +1080,14 @@ def main():
     g.tick(last + 0.01)
     col, val = ns.StandState()
     check("after the shot: stand-still bar solid green", col == "move" and val == 1)
+    g.playerSpeed = 7
+    g.tick(last + 0.3)
+    col, val = ns.StandState()
+    check("moving after the shot: the line goes grey", col == "idle" and val == 1)
+    g.playerSpeed = 0
     g.tick(last + 2.03 - 0.62 - 0.02)
     col, val = ns.StandState()
-    check("free to move: still solid green just before you must stand", col == "move" and val == 1)
+    check("stopped again before you must stand: green", col == "move" and val == 1)
     g.tick(last + 2.03 - 0.62 + 0.02)
     col, val = ns.StandState()
     check("must stand: red, filling from empty", col == "stand" and val < 0.1)
