@@ -46,9 +46,13 @@ end
 --   stand: from the moment you stopped to the shot, when you stopped after the swing was
 --          over (how long you must stand still);
 --   early: from the end of the swing to the shot, when you stood still all along (0 when
---          the half second sits inside the swing, about 0.5 when it comes on top).
+--          the half second sits inside the swing, about 0.5 when it comes on top);
+--   missed: from the end of the swing to the shot, when you stopped inside the stand-still
+--          window but too late for it. Measured in game on 20 Oct 2026: always about half
+--          a second after the swing, however close to the end you stopped.
 -- The median of the last few is used once there are three. Kept in the saved settings.
-ns.calib = { stand = {}, early = {} }
+ns.calib = { stand = {}, early = {}, missed = {} }
+ns.MISSED = 0.5 -- the half second after the swing, until it is measured
 local MAX_SAMPLES, MIN_SAMPLES = 9, 3
 
 -- Asked several times a frame, so the answer is kept until the list changes (a new
@@ -89,6 +93,10 @@ function ns.EarlyDelay()
   return m and math.max(0, m) or 0
 end
 
+function ns.MissedDelay()
+  return median(ns.calib.missed) or ns.MISSED
+end
+
 -- The last shots as plain numbers, saved with the settings, so the timing can be checked
 -- after a /reload without copying chat. One small row per shot, at most SHOT_LOG rows.
 ns.shotLog = {}
@@ -124,12 +132,16 @@ local function learn(now, s)
   if not (s.lastShot and s.speed) or s.gapBroken or ns.unlocked then return end
   if not m.known or m.moving or not m.stillSince then return end
   local swingEnd = s.lastShot + s.speed
-  if m.stillSince >= swingEnd then
+  local stopBefore = swingEnd - m.stillSince -- how long before the swing end you stopped
+  if stopBefore <= 0 then
     local v = now - m.stillSince
     if v >= 0.15 and v <= 1.2 then addSample(ns.calib.stand, v) end
-  elseif m.stillSince <= swingEnd - 0.8 then -- stood still through the whole window
+  elseif stopBefore >= 0.8 then -- stood still through the whole window
     local v = now - swingEnd
     if v >= -0.1 and v <= 0.8 then addSample(ns.calib.early, v) end
+  elseif stopBefore >= 0.1 and stopBefore <= ns.StandNeed() - 0.05 then -- stopped inside it, too late
+    local v = now - swingEnd
+    if v >= 0.2 and v <= 0.9 then addSample(ns.calib.missed, v) end
   end
 end
 
@@ -203,12 +215,22 @@ function ns.MovementReport()
   }
 end
 
--- When the shot fires if you stay still: when the swing ends, but never sooner than the
--- full stand-still time after you stopped. nil while you move, or when movement is not known.
+-- When the shot fires if you stay still, and when your standing for it began (the start of
+-- the stand-still bar). nil while you move, or when movement is not known. Three cases, as
+-- measured in game:
+--   still before the stand-still window starts: on time, at the end of the swing;
+--   stopped inside the window: about half a second after the end of the swing, however
+--     late in the window you stopped;
+--   stopped after the swing ended: the full stand-still time after you stopped.
 function ns.ShotAt(lastShot, speed)
   local m = ns.move
   if not m.known or m.moving or not m.stillSince then return nil end
-  return math.max(lastShot + speed + ns.EarlyDelay(), m.stillSince + ns.StandNeed())
+  local swingEnd, need = lastShot + speed, ns.StandNeed()
+  local onTime = swingEnd + ns.EarlyDelay()
+  if m.stillSince <= onTime - need then return onTime, onTime - need end
+  local missed = swingEnd + ns.MissedDelay()
+  if m.stillSince < swingEnd then return missed, m.stillSince end
+  return math.max(missed, m.stillSince + need), m.stillSince
 end
 
 function ns.ShotIn(now, lastShot, speed)
@@ -220,10 +242,11 @@ end
 -- shot goes. It starts when you stop, or when the stand-still part of the swing begins if
 -- you were already standing. 0 while you move.
 function ns.StandProgress(now, lastShot, speed)
-  local at = ns.ShotAt(lastShot, speed)
+  local at, start = ns.ShotAt(lastShot, speed)
   if not at then return 0 end
-  local need = ns.StandNeed()
-  return math.max(0, math.min(1, (now - (at - need)) / need))
+  local span = at - start
+  if span <= 0 then return 1 end
+  return math.max(0, math.min(1, (now - start) / span))
 end
 
 -- The last few gaps between Auto Shots, next to the speed the game reported, for
@@ -265,6 +288,10 @@ function ns.TimingReport()
     or string.format("Stand-still time not measured yet (%d of 3 shots): stop after a swing ends and let the shot go. Using %.2f s.", #ns.calib.stand, ns.Window())
   if early then
     lines[#lines + 1] = string.format("Shot after the swing ends, standing still: %+.2f s (%d shots).", early, #ns.calib.early)
+  end
+  local missed = median(ns.calib.missed)
+  if missed then
+    lines[#lines + 1] = string.format("Stopped inside the window, too late: shot %+.2f s after the swing (%d shots).", missed, #ns.calib.missed)
   end
   if n < 3 then
     lines[#lines + 1] = "Not enough shots yet: stand still and let Auto Shot fire 6 times, then type /hst timing."

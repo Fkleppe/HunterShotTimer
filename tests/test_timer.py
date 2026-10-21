@@ -976,27 +976,30 @@ def main():
     check("moving where you must stand still: STOP, no countdown", "STOP" in g.shownText()
           and "STAND STILL" not in g.shownText() and ns.ui.countdown.text == "")
     g.playerSpeed = 0
-    g.tick(7001.7)  # stopped 0.3 s before the swing ends: the shot waits for a full window
+    g.tick(7001.7)  # stopped 0.3 s before the swing ends: too late for the window
     w, still = ns.Window(), ns.move.stillSince
+    T = 7002.0 + ns.MISSED  # measured in game: half a second after the swing, however late you stopped
     def shown_left(t):
         return ns.ui.countdown.text == "%.2f" % (int((t - g.GetTime()) * 100 + 0.5) / 100)  # exact while standing
     check("stopped late: the bar sees you stand still", 7001.6 < still <= 7001.7)
-    check("stopped late: countdown to the real shot, a full window after you stopped",
-          "STAND STILL" in g.shownText() and shown_left(still + w) and still + w > 7002.0)
+    check("stopped inside the window: countdown to half a second after the swing",
+          "STAND STILL" in g.shownText() and shown_left(T))
+    check("stopped inside the window: the stand-still bar starts at your stop",
+          ns.StandState()[0] == "stand" and ns.StandState()[1] < 0.15)
     g.tick(7002.0)
-    check("swing over, still standing: still counting down", "STAND STILL" in g.shownText() and shown_left(still + w))
-    g.setClock(still + w)
+    check("swing over, still standing: still counting down", "STAND STILL" in g.shownText() and shown_left(T))
+    g.setClock(T)
     g.fire("PLAYER_SWING", 2.0, 2)
     g.tick(7002.4)
     check("shot fired: MOVE again", "MOVE" in g.shownText())
-    g.tick(still + w + 2.0 - 0.2)
+    g.tick(T + 2.0 - 0.2)
     check("standing still through the window: countdown to the swing end",
-          "STAND STILL" in g.shownText() and shown_left(still + w + 2.0))
+          "STAND STILL" in g.shownText() and shown_left(T + 2.0))
     g.falling = True
-    g.tick(still + w + 2.0 - 0.15)
+    g.tick(T + 2.0 - 0.15)
     check("a jump counts as moving", "STOP" in g.shownText())
     g.falling = False
-    g.tick(still + w + 2.0 - 0.1)
+    g.tick(T + 2.0 - 0.1)
     n = len(g.printed)
     g.SlashCmdList.HUNTERSHOTTIMER("timing")
     out = [g.printed[i] for i in range(n + 1, len(g.printed) + 1)]
@@ -1074,6 +1077,34 @@ def main():
     g.playerSpeed = None
     lua.eval("function(c) c.stand, c.early = {}, {} end")(ns.calib)
 
+    # --- Stopped inside the window: the delay after the swing is learned too ----------
+    g.fire("PLAYER_ENTERING_WORLD")
+    lua.eval("function(c) c.stand, c.early, c.missed = {}, {}, {} end")(ns.calib)
+    g.fire("START_AUTOREPEAT_SPELL")
+    g.playerSpeed = 0
+    g.setClock(7700.0)
+    g.tick(7700.05)
+    g.fire("PLAYER_SWING", 2.0, 2)
+    last = g.GetTime()
+    for i in range(3):
+        g.playerSpeed = 7
+        g.tick(last + 1.7)
+        g.playerSpeed = 0
+        g.tick(last + 1.75)  # stopped 0.25 s before the swing end
+        g.setClock(last + 2.45)
+        g.fire("PLAYER_SWING", 2.0, 2)
+        last = g.GetTime()
+    check("learned: shot 0.45 s after the swing when you stop inside the window",
+          abs(ns.MissedDelay() - 0.45) < 1e-6 and len(ns.calib.missed) == 3 and len(ns.calib.stand) == 0)
+    g.playerSpeed = 7
+    g.tick(last + 1.7)
+    g.playerSpeed = 0
+    g.tick(last + 1.75)
+    check("the learned delay drives the countdown", ns.ui.countdown.text == "%.2f" % (int((last + 2.45 - g.GetTime()) * 100 + 0.5) / 100))
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    g.playerSpeed = None
+    lua.eval("function(c) c.stand, c.early, c.missed = {}, {}, {} end")(ns.calib)
+
     # --- The stand-still bar learns your real stand-still time ------------------------
     g.fire("PLAYER_ENTERING_WORLD")
     lua.eval("function(c) c.stand, c.early = {}, {} end")(ns.calib)
@@ -1129,8 +1160,11 @@ def main():
     g.playerSpeed = 0
     g.tick(g.GetTime() + 0.05)
     stop = ns.move.stillSince
-    g.tick(stop + 0.62 / 2)
-    check("stopped late: the bar starts at your stop and runs the full time", abs(ns.standBar.value - 0.5) < 0.03)
+    T = last + 2.0 + ns.MISSED  # stopped inside the window: half a second after the swing
+    g.tick(stop + (T - stop) / 2)
+    check("stopped inside the window: the bar runs from your stop to the shot", abs(ns.standBar.value - 0.5) < 0.03)
+    check("stopped inside the window: countdown to half a second after the swing",
+          ns.ui.countdown.text == "%.2f" % (int((T - g.GetTime()) * 100 + 0.5) / 100))
     n = len(g.printed)
     g.SlashCmdList.HUNTERSHOTTIMER("timing")
     out = [g.printed[i] for i in range(n + 1, len(g.printed) + 1)]

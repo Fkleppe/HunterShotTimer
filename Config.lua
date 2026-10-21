@@ -124,7 +124,7 @@ function ns.InitDB(saved)
   merge(db, ns.DEFAULTS)
   -- Measured stand-still times (Timer.lua): plain numbers only, at most the last nine.
   local calib = type(db.calib) == "table" and db.calib or {}
-  for _, k in ipairs({ "stand", "early" }) do
+  for _, k in ipairs({ "stand", "early", "missed" }) do
     local clean = {}
     if type(calib[k]) == "table" then
       for _, v in ipairs(calib[k]) do
