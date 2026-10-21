@@ -500,7 +500,7 @@ def render_timing():
     lua.execute("function fillGaps(ns, list) ns.gaps = {} for i, g in ipairs(list) do ns.gaps[i] = { gap = g, speed = 2.09 } end end")
     lua.globals().fillGaps(ns, lua.table(2.11, 2.08, 2.10, 2.12, 4.30, 2.09, 2.10))
     lua.execute("function fillCalib(ns) ns.DEFAULTS = { windowExtra = 0, addPing = true } "
-                "ns.calib = { stand = { 0.61, 0.63, 0.62, 0.62 }, early = { 0.02, 0.01, 0.03 } } end")
+                "ns.calib = { stand = { 0.61, 0.63, 0.62, 0.62 }, early = { 0.02, 0.01, 0.03 }, missed = { 0.51, 0.5, 0.52 } } end")
     lua.globals().fillCalib(ns)
     lines = list(ns.TimingReport().values())
 
