@@ -99,6 +99,7 @@ standBorder:SetPoint("TOPLEFT", -1, 1)
 standBorder:SetPoint("BOTTOMRIGHT", 1, -1)
 ns.standBar = standBar
 local standShown, standColour = -1, nil
+local standBlink = false -- the stand-still bar blinks while a shot is overdue
 function ns.StandState() return standColour, standShown end
 
 local status = text(timer, "LEFT")
@@ -509,7 +510,6 @@ end
 -- `key`: "move" (green) or "stand" (red) from the colour settings, or "idle" (grey,
 -- moving after the shot). `waiting`: full, but
 -- the shot has not gone yet: it blinks, so a full red bar never reads as "done, go".
-local standBlink = false
 local function setStand(v, key, waiting, now)
   if v ~= standShown then
     standShown = v
@@ -533,9 +533,15 @@ end
 local function render(now, lastShot, speed, demo)
   local cycle = speed + (demo and 0 or ns.EarlyDelay())
   setSpeed(cycle, demo and ns.Window() or nil)
-  local phase, value, left = ns.Phase(now, lastShot, speed)
+  local phase, value, left
+  if demo then
+    phase, value, left = ns.Phase(now, lastShot, speed, ns.Window(), 0)
+  else
+    phase, value, left = ns.Phase(now, lastShot, speed)
+  end
   local late = phase == "late"
   local label, pulse, fine = "STAND STILL", late, false
+  local heldByRange = late and LATE_RANGE[rangeState] ~= nil
   -- Stand-still bar. Shot away, free to move: solid green, grey once you are moving. Then
   -- red, filling from what you do when movement is known, else from the swing time.
   local need = math.min(demo and ns.Window() or ns.StandNeed(), cycle)
@@ -543,11 +549,11 @@ local function render(now, lastShot, speed, demo)
     setStand(1, (ns.move.known and ns.move.moving and not demo) and "idle" or "move")
   elseif ns.move.known and not demo then
     local v = ns.StandProgress(now, lastShot, speed)
-    setStand(v, "stand", v >= 1, now)
+    setStand(v, "stand", v >= 1 and not heldByRange, now)
   else
     local into = (now - lastShot) - (cycle - need)
     local v = math.max(0, math.min(1, into / need))
-    setStand(v, "stand", late, now)
+    setStand(v, "stand", late and not heldByRange, now)
   end
   if phase == "move" then
     label = "MOVE"
@@ -743,6 +749,8 @@ frame:SetScript("OnUpdate", function(_, dt)
       local ok, result = pcall(ns.TargetRange)
       if ok then rangeState = result else rangeState, ns.rangeError = nil, result end
     end
+    -- Out of range or too close during the swing: that shot is not learned from.
+    if (rangeState == "far" or rangeState == "close") and ns.state.lastShot then ns.state.held = true end
     if rangeState then
       local distance
       if db.rangeDistance ~= "off" then

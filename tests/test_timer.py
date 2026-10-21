@@ -1105,6 +1105,62 @@ def main():
     g.playerSpeed = None
     lua.eval("function(c) c.stand, c.early, c.missed = {}, {}, {} end")(ns.calib)
 
+    # --- Review fixes: held shots, missed movement events, demo, range hold -----------
+    g.fire("PLAYER_ENTERING_WORLD")
+    lua.eval("function(c) c.stand, c.early, c.missed = {}, {}, {} end")(ns.calib)
+    g.fire("START_AUTOREPEAT_SPELL")
+    g.playerSpeed = "SECRET"
+    target.exists, target.hostile, target.autoShot, target.close = True, True, True, False
+    g.setClock(7800.0)
+    g.fire("PLAYER_STOPPED_MOVING")
+    g.fire("PLAYER_SWING", 2.0, 2)
+    last = g.GetTime()
+    for i in range(4):  # target leaves range at each swing end, back 0.7 s later
+        g.tick(last + 1.95)
+        target.autoShot = False
+        g.tick(last + 2.6)
+        target.autoShot = True
+        g.tick(last + 2.65)
+        g.setClock(last + 2.7)
+        g.fire("PLAYER_SWING", 2.0, 2)
+        last = g.GetTime()
+    check("shots held up by range are not learned", len(ns.calib.early) == 0)
+    g.tick(last + 2.1)
+    target.autoShot = False
+    g.tick(last + 2.3)
+    check("held by range: the stand-still bar does not blink 'stand still'", "OUT OF RANGE" in g.shownText()
+          and ns.standBar.alpha == 1)
+    target.autoShot = True
+    # A missed 'started moving': the stop event still counts as a fresh stop.
+    g.setClock(last + 2.4)
+    g.fire("PLAYER_SWING", 2.0, 2)
+    last = g.GetTime()
+    g.tick(last + 1.8)
+    g.fire("PLAYER_STOPPED_MOVING")
+    check("a stop event always restarts the stand-still time", abs(ns.move.stillSince - (last + 1.8)) < 1e-9)
+    # A missed 'stopped moving': the second shot while 'moving' heals it.
+    g.fire("PLAYER_STARTED_MOVING")
+    g.setClock(last + 2.5)
+    g.fire("PLAYER_SWING", 2.0, 2)
+    check("one shot while moving: still moving (you set off just before)", ns.move.moving)
+    last = g.GetTime()
+    g.setClock(last + 2.0)
+    g.fire("PLAYER_SWING", 2.0, 2)
+    check("a second shot without a movement event: you were standing", not ns.move.moving)
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    target.exists, target.autoShot, target.close = False, None, False
+    g.playerSpeed = None
+    ns.move.events, ns.move.eventCount, ns.move.source, ns.move.known = False, 0, None, False
+    # The options demo keeps its own plain numbers, however the bar is calibrated.
+    lua.eval("function(c) c.stand, c.early = { 0.8, 0.8, 0.8 }, { 0.4, 0.4, 0.4 } end")(ns.calib)
+    ns.SetUnlocked(True)
+    t0 = g.GetTime() + 3.0 - (g.GetTime() % 3.0)
+    g.tick(t0 + 2.97)
+    check("calibrated: the demo still fills to the end", ns.bar.value > 0.97)
+    ns.SetUnlocked(False)
+    lua.eval("function(c) c.stand, c.early, c.missed = {}, {}, {} end")(ns.calib)
+    g.tick(g.GetTime() + 4)
+
     # --- The stand-still bar learns your real stand-still time ------------------------
     g.fire("PLAYER_ENTERING_WORLD")
     lua.eval("function(c) c.stand, c.early = {}, {} end")(ns.calib)
@@ -1257,6 +1313,12 @@ def main():
     g.combat = False
     target.exists, target.autoShot, target.close = False, None, False
     ns.melee.lastSwing = None
+
+    # After a whole session of play: still nothing leaked into the global table.
+    leaked = {k for k in lua.eval("function() local t = {} for k in pairs(_G) do if not before[k] then t[#t + 1] = k end end return t end")().values()}
+    # The saved settings, the named options window and the mock's own waypoint are expected.
+    check("no globals leaked after playing",
+          not (leaked - allowed - {"HunterShotTimerDB", "HunterShotTimerOptions", "waypoint"}))
 
     print({"result": "PASS", "checks": len(checks)})
 

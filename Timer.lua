@@ -31,10 +31,11 @@ end
 -- "late" means the swing is over but no shot has fired yet (you moved, or are out of range;
 -- since the 16 October build Auto Shot keeps firing while you cast Aimed Shot):
 -- keep standing still until it does.
-function ns.Phase(now, lastShot, speed)
+-- `need` and `early` override the measured numbers (the options demo uses the plain ones).
+function ns.Phase(now, lastShot, speed, need, early)
   local elapsed = now - lastShot
-  local cycle = speed + ns.EarlyDelay()
-  local stand = math.min(ns.StandNeed(), cycle)
+  local cycle = speed + (early or ns.EarlyDelay())
+  local stand = math.min(need or ns.StandNeed(), cycle)
   local moveUntil = cycle - stand
   if elapsed < moveUntil then return "move", elapsed / cycle, moveUntil - elapsed end
   if elapsed < cycle then return "stand", elapsed / cycle, cycle - elapsed end
@@ -129,7 +130,8 @@ end
 -- A shot just fired: if you were standing still for it, learn from it.
 local function learn(now, s)
   local m = ns.move
-  if not (s.lastShot and s.speed) or s.gapBroken or ns.unlocked then return end
+  -- Held up by range during the swing: the delay is the target's, not the game's rule.
+  if not (s.lastShot and s.speed) or s.gapBroken or s.held or ns.unlocked then return end
   if not m.known or m.moving or not m.stillSince then return end
   local swingEnd = s.lastShot + s.speed
   local stopBefore = swingEnd - m.stillSince -- how long before the swing end you stopped
@@ -138,7 +140,7 @@ local function learn(now, s)
     if v >= 0.15 and v <= 1.2 then addSample(ns.calib.stand, v) end
   elseif stopBefore >= 0.8 then -- stood still through the whole window
     local v = now - swingEnd
-    if v >= -0.1 and v <= 0.8 then addSample(ns.calib.early, v) end
+    if v >= -0.1 and v <= ns.STAND + ns.MAX_LATENCY then addSample(ns.calib.early, v) end
   elseif stopBefore >= 0.1 and stopBefore <= ns.StandNeed() - 0.05 then -- stopped inside it, too late
     local v = now - swingEnd
     if v >= 0.2 and v <= 0.9 then addSample(ns.calib.missed, v) end
@@ -161,9 +163,22 @@ ns.move = { known = false, moving = false, stillSince = nil, events = false, sou
 -- From the movement events. Once they have been seen, they are trusted in combat.
 function ns.OnMoveEvent(now, moving)
   local m = ns.move
-  m.events, m.eventCount = true, m.eventCount + 1
+  m.events, m.eventCount, m.lastEvent = true, m.eventCount + 1, now
   m.source = "events"
   ns.OnMovement(now, moving)
+  -- A stop event is a real stop, even if a missed start left us thinking you stood still.
+  if not moving then m.stillSince = now end
+end
+
+-- A shot fired although we think you are moving, and no movement event came since the
+-- shot before: you cannot have moved through a whole swing and still shot, so a stop
+-- event was missed. (One shot while "moving" is normal: you set off just before the
+-- shot's news reached you.)
+local function healMovement(now, s)
+  local m = ns.move
+  if m.events and m.moving and s.lastShot and (m.lastEvent or 0) < s.lastShot then
+    m.moving, m.stillSince = false, now
+  end
 end
 
 function ns.OnMovement(now, moving)
@@ -260,13 +275,14 @@ local MAX_GAPS = 10
 function ns.OnShot(now, duration)
   if issecret(duration) or type(duration) ~= "number" or duration ~= duration or duration <= 0 or duration > 10 then return end
   local s = ns.state
+  healMovement(now, s)
   logShot(now, s, duration)
   learn(now, s)
   if s.lastShot and s.speed and not s.gapBroken then
     table.insert(ns.gaps, { gap = now - s.lastShot, speed = s.speed, moved = s.moved })
     if #ns.gaps > MAX_GAPS then table.remove(ns.gaps, 1) end
   end
-  s.lastShot, s.speed, s.gapBroken, s.moved = now, duration, false, false
+  s.lastShot, s.speed, s.gapBroken, s.moved, s.held = now, duration, false, false, false
 end
 
 -- Gaps longer than this past the speed were held up (moving, out of range): left out.
