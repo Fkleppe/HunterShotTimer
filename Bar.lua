@@ -846,7 +846,9 @@ events:SetScript("OnEvent", function(_, event, a, b)
     end
   elseif event == "UNIT_RANGEDDAMAGE" or event == "UNIT_ATTACK_SPEED" then
     -- Haste changed (Deadly Aspects, Rapid Fire, ...): noted for the shot log.
-    if ns.isHunter and not ns.issecret(a) and a == "player" then ns.OnSpeedChange(GetTime()) end
+    if ns.isHunter and not ns.issecret(a) and a == "player" then
+      ns.OnSpeedChange(GetTime(), event == "UNIT_RANGEDDAMAGE" and "R" or "A")
+    end
   elseif event == "PLAYER_STARTED_MOVING" or event == "PLAYER_STOPPED_MOVING" then
     if ns.isHunter then ns.OnMoveEvent(GetTime(), event == "PLAYER_STARTED_MOVING") end
   elseif event == "PLAYER_ENTER_COMBAT" then

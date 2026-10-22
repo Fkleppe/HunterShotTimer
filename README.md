@@ -147,7 +147,7 @@ Switch it off with **Melee & too close** in the settings; the melee colour is un
 
 A coloured dot and text under the bar: **In range**, **Too close** or **Out of range**, for a
 hostile target. Next to it the distance to the target, either as a 5 yard bracket
-(`25-30 yd`) or as a single estimate (`~28 yd`), your choice. WoW does not give addons an
+(`25-30 yd`) or as a single estimate (`~28 yd`), your choice. In range or not is the game's own answer for Auto Shot, so range talents such as **Hawk Eye** count: at 41 yd with Hawk Eye it says *In range 40-45 yd*. WoW does not give addons an
 exact distance; the bracket comes from asking the game which item ranges reach the target.
 
 ### Shots to kill

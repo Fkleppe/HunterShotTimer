@@ -385,6 +385,15 @@ def main():
     target.close, target.yards = False, 60
     g.tick(3)
     check("too far shown", "Out of range  45+ yd" in g.shownText())
+    # Hawk Eye (talent, +6 yd): the game says Auto Shot reaches 41 yd. The bar asks the game,
+    # so the target counts as in range, with an honest 40-45 yd bracket.
+    target.yards, target.autoShot = 41, True
+    g.tick(3.15)
+    check("Hawk Eye: in range at 41 yd", "In range  40-45 yd" in g.shownText() and ns.TargetRange() == "in")
+    target.autoShot = False
+    g.tick(3.3)
+    check("without the talent: out of range at 41 yd", "Out of range  40-45 yd" in g.shownText())
+    target.autoShot = True
     target.yards = 22
     target.hostile = False
     check("friendly target ignored", ns.TargetRange() is None)
@@ -1329,7 +1338,7 @@ def main():
     g.fire("PLAYER_SWING", 1.538, 2)
     log = ns.db.shotLog
     row = log[len(log)]
-    check("haste change mid-swing: logged with the shot", row.haste == "0.35" and row.speed == 1.538 and row.prev == 2.0)
+    check("haste change mid-swing: logged with the shot", row.haste == "R0.35" and row.speed == 1.538 and row.prev == 2.0)
     check("haste change mid-swing: not learned from", len(ns.calib.early) == 0 and len(ns.calib.missed) == 0)
     g.setClock(9003.158)
     g.fire("PLAYER_SWING", 1.538, 2)

@@ -90,10 +90,12 @@ def main(path):
     hasted = [r for r in rows if r.get("haste") and r.get("gap") and not r.get("broken")]
     if hasted:
         print(f"\nattack speed changed inside {len(hasted)} swings:")
+        print("  events (R ranged, A attack speed; seconds into the swing): see each row")
         print("  at (s into swing)  old speed  new speed  gap    if only the next swing  if this swing too")
         votes = {"next": 0, "this": 0}
         for r in hasted:
-            t = float(str(r["haste"]).split(",")[0])
+            first = str(r["haste"]).split(",")[0]
+            t = float(first.lstrip("RA"))
             old, new, gap = r["prev"], r["speed"], r["gap"]
             plain = old
             rescaled = t + (old - t) * new / old
@@ -101,7 +103,8 @@ def main(path):
             near = "next" if abs(gap - plain) <= abs(gap - rescaled) else "this"
             if abs(new - old) / old > 0.05 and stand < 0.3:
                 votes[near] += 1
-            print(f"  {t:17.3f}  {old:9.3f}  {new:9.3f}  {gap:5.3f}  {plain:22.3f}  {rescaled:17.3f}  -> {near}")
+            print(f"  {t:17.3f}  {old:9.3f}  {new:9.3f}  {gap:5.3f}  {plain:22.3f}  {rescaled:17.3f}  -> {near}"
+                  f"   [{r['haste']}]")
         print(f"  verdict (clear cases): only the next swing {votes['next']}, this swing too {votes['this']}")
     if calib:
         for k, v in calib.items():

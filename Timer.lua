@@ -108,11 +108,13 @@ local function r3(v) return v and math.floor(v * 1000 + 0.5) / 1000 end
 -- Rapid Fire starting or running out): when, counted from the start of the swing. Logged with
 -- the next shot, so the shot log shows whether the game speeds up a swing already under way
 -- (then the bar must too) or only the next one (then the game's reported speed is enough).
-function ns.OnSpeedChange(now)
+-- `kind`: "R" for UNIT_RANGEDDAMAGE (also fires when ranged damage changes), "A" for
+-- UNIT_ATTACK_SPEED; which one a ranged haste proc fires on Forever is still to be seen.
+function ns.OnSpeedChange(now, kind)
   local s = ns.state
   if not s.lastShot then return end
   s.speedChanges = s.speedChanges or {}
-  if #s.speedChanges < 4 then s.speedChanges[#s.speedChanges + 1] = r3(now - s.lastShot) end
+  if #s.speedChanges < 6 then s.speedChanges[#s.speedChanges + 1] = (kind or "") .. r3(now - s.lastShot) end
 end
 
 local function logShot(now, s, duration)
@@ -373,7 +375,8 @@ end
 
 -- Range to the target from two plain answers: is Auto Shot in range, and is the target
 -- within ~10 yd (interact distance). Auto Shot fails both inside the 8 yd dead zone and
--- past 35 yd, so "close" tells the two apart. nil = nothing to show.
+-- past its range (35 yd, more with Hawk Eye: the game's answer includes talents), so "close"
+-- tells the two apart. nil = nothing to show.
 function ns.Range(inRange, close)
   if issecret(inRange) or inRange == nil then return nil end
   if inRange == true or inRange == 1 then return "in" end
