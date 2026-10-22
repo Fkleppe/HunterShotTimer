@@ -104,6 +104,17 @@ ns.shotLog = {}
 local SHOT_LOG = 40
 local function r3(v) return v and math.floor(v * 1000 + 0.5) / 1000 end
 
+-- The attack speed changed inside the current swing (a haste proc such as Deadly Aspects,
+-- Rapid Fire starting or running out): when, counted from the start of the swing. Logged with
+-- the next shot, so the shot log shows whether the game speeds up a swing already under way
+-- (then the bar must too) or only the next one (then the game's reported speed is enough).
+function ns.OnSpeedChange(now)
+  local s = ns.state
+  if not s.lastShot then return end
+  s.speedChanges = s.speedChanges or {}
+  if #s.speedChanges < 4 then s.speedChanges[#s.speedChanges + 1] = r3(now - s.lastShot) end
+end
+
 local function logShot(now, s, duration)
   local m = ns.move
   local row = {
@@ -118,6 +129,7 @@ local function logShot(now, s, duration)
     row.afterSwing = r3(now - (s.lastShot + s.speed))
     row.broken = s.gapBroken and 1 or 0
     row.moved = s.moved and 1 or 0
+    if s.speedChanges then row.haste = table.concat(s.speedChanges, ",") end
   end
   if m.known then
     row.still = m.moving and -1 or (m.stillSince and r3(now - m.stillSince)) or nil
@@ -131,7 +143,8 @@ end
 local function learn(now, s)
   local m = ns.move
   -- Held up by range during the swing: the delay is the target's, not the game's rule.
-  if not (s.lastShot and s.speed) or s.gapBroken or s.held or ns.unlocked then return end
+  -- Speed changed mid-swing: the swing's end is not where its reported speed says.
+  if not (s.lastShot and s.speed) or s.gapBroken or s.held or s.speedChanges or ns.unlocked then return end
   if not m.known or m.moving or not m.stillSince then return end
   local swingEnd = s.lastShot + s.speed
   local stopBefore = swingEnd - m.stillSince -- how long before the swing end you stopped
@@ -278,11 +291,11 @@ function ns.OnShot(now, duration)
   healMovement(now, s)
   logShot(now, s, duration)
   learn(now, s)
-  if s.lastShot and s.speed and not s.gapBroken then
+  if s.lastShot and s.speed and not s.gapBroken and not s.speedChanges then
     table.insert(ns.gaps, { gap = now - s.lastShot, speed = s.speed, moved = s.moved })
     if #ns.gaps > MAX_GAPS then table.remove(ns.gaps, 1) end
   end
-  s.lastShot, s.speed, s.gapBroken, s.moved, s.held = now, duration, false, false, false
+  s.lastShot, s.speed, s.gapBroken, s.moved, s.held, s.speedChanges = now, duration, false, false, false, nil
 end
 
 -- Gaps longer than this past the speed were held up (moving, out of range): left out.

@@ -85,6 +85,24 @@ def main(path):
         print(f"stopped after the swing ended ({len(stopped_late)} shots): the shot came "
               f"{statistics.median(stopped_late):.3f} s after you stopped (median; "
               f"min {min(stopped_late):.3f}, max {max(stopped_late):.3f})")
+    # Haste changes inside a swing (Deadly Aspects, Rapid Fire): does the game speed up the
+    # swing already under way? Compare the gap with both answers.
+    hasted = [r for r in rows if r.get("haste") and r.get("gap") and not r.get("broken")]
+    if hasted:
+        print(f"\nattack speed changed inside {len(hasted)} swings:")
+        print("  at (s into swing)  old speed  new speed  gap    if only the next swing  if this swing too")
+        votes = {"next": 0, "this": 0}
+        for r in hasted:
+            t = float(str(r["haste"]).split(",")[0])
+            old, new, gap = r["prev"], r["speed"], r["gap"]
+            plain = old
+            rescaled = t + (old - t) * new / old
+            stand = max(0.0, (r.get("afterSwing") or 0))
+            near = "next" if abs(gap - plain) <= abs(gap - rescaled) else "this"
+            if abs(new - old) / old > 0.05 and stand < 0.3:
+                votes[near] += 1
+            print(f"  {t:17.3f}  {old:9.3f}  {new:9.3f}  {gap:5.3f}  {plain:22.3f}  {rescaled:17.3f}  -> {near}")
+        print(f"  verdict (clear cases): only the next swing {votes['next']}, this swing too {votes['this']}")
     if calib:
         for k, v in calib.items():
             if v:

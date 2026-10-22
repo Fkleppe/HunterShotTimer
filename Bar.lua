@@ -829,7 +829,9 @@ events:RegisterEvent("START_AUTOREPEAT_SPELL")
 events:RegisterEvent("STOP_AUTOREPEAT_SPELL")
 pcall(events.RegisterEvent, events, "PLAYER_SWING")
 for _, e in ipairs({ "PLAYER_ENTER_COMBAT", "PLAYER_LEAVE_COMBAT", "PLAYER_REGEN_ENABLED",
-                    "PLAYER_STARTED_MOVING", "PLAYER_STOPPED_MOVING" }) do pcall(events.RegisterEvent, events, e) end
+                    "PLAYER_STARTED_MOVING", "PLAYER_STOPPED_MOVING", "UNIT_RANGEDDAMAGE", "UNIT_ATTACK_SPEED" }) do
+  pcall(events.RegisterEvent, events, e)
+end
 events:RegisterEvent("BAG_UPDATE_DELAYED")
 events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 events:SetScript("OnEvent", function(_, event, a, b)
@@ -842,6 +844,9 @@ events:SetScript("OnEvent", function(_, event, a, b)
       ns.OnMeleeSwing(GetTime(), a)
       if ns.db and ns.db.showFlash and ns.db.showMelee then flashAlpha = 0.25 end
     end
+  elseif event == "UNIT_RANGEDDAMAGE" or event == "UNIT_ATTACK_SPEED" then
+    -- Haste changed (Deadly Aspects, Rapid Fire, ...): noted for the shot log.
+    if ns.isHunter and not ns.issecret(a) and a == "player" then ns.OnSpeedChange(GetTime()) end
   elseif event == "PLAYER_STARTED_MOVING" or event == "PLAYER_STOPPED_MOVING" then
     if ns.isHunter then ns.OnMoveEvent(GetTime(), event == "PLAYER_STARTED_MOVING") end
   elseif event == "PLAYER_ENTER_COMBAT" then

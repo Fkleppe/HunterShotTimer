@@ -1314,6 +1314,30 @@ def main():
     target.exists, target.autoShot, target.close = False, None, False
     ns.melee.lastSwing = None
 
+    # A haste proc mid-swing (Deadly Aspects): noted in the shot log, not learned from.
+    g.fire("PLAYER_ENTERING_WORLD")
+    lua.eval("function(c) c.stand, c.early, c.missed = {}, {}, {} end")(ns.calib)
+    g.playerSpeed = 0
+    g.setClock(9000.0)
+    g.tick(9000.05)
+    g.fire("START_AUTOREPEAT_SPELL")
+    g.fire("PLAYER_SWING", 2.0, 2)
+    g.setClock(9000.4)
+    g.fire("UNIT_RANGEDDAMAGE", "target")  # someone else's: ignored
+    g.fire("UNIT_RANGEDDAMAGE", "player")
+    g.setClock(9001.62)
+    g.fire("PLAYER_SWING", 1.538, 2)
+    log = ns.db.shotLog
+    row = log[len(log)]
+    check("haste change mid-swing: logged with the shot", row.haste == "0.35" and row.speed == 1.538 and row.prev == 2.0)
+    check("haste change mid-swing: not learned from", len(ns.calib.early) == 0 and len(ns.calib.missed) == 0)
+    g.setClock(9003.158)
+    g.fire("PLAYER_SWING", 1.538, 2)
+    row = log[len(log)]
+    check("next swing: no haste note", row.haste is None)
+    g.fire("STOP_AUTOREPEAT_SPELL")
+    g.playerSpeed = None
+
     # After a whole session of play: still nothing leaked into the global table.
     leaked = {k for k in lua.eval("function() local t = {} for k in pairs(_G) do if not before[k] then t[#t + 1] = k end end return t end")().values()}
     # The saved settings, the named options window and the mock's own waypoint are expected.
